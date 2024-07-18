@@ -13,6 +13,7 @@ pages_names = [
     'sign_in',
     'log_in',
     'root_page', 
+    'chose_task',
     'manage_data',
     'retrieve_data'
 ]

@@ -1,4 +1,5 @@
 app_credentials.yaml
+user_files
 .env
 __pycache__
 

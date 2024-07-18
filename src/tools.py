@@ -4,7 +4,9 @@ import yaml
 import json
 import pandas as pd
 
-from constants import credentials_yaml_path, json_data_folder_path
+import easyocr
+
+from constants import credentials_yaml_path, json_data_folder_path, image_to_text_languages
 
 def create_cred_yaml_file():
     #Initialize the YAML file with an empty dictionary.
@@ -75,6 +77,7 @@ class SignLog():
     def check_user_credentials(email, password):
         with open(credentials_yaml_path, 'r') as file:
             data = yaml.safe_load(file)  
+            
         # Check if provided email exists
         if not data['user_creds'].get(email, None):
             return False
@@ -89,7 +92,7 @@ class SignLog():
 class DataManagment():
     @staticmethod
     def _get_user_json_file_path(user_id):
-        return os.path.join(json_data_folder_path, ''.join(user_id, '.json'))
+        return os.path.join(json_data_folder_path, ''.join([user_id, '.json']))
     
     @staticmethod
     def initialize_json_data_file_if_not_already(user_id):
@@ -112,24 +115,49 @@ class DataManagment():
         """Add an entry to the JSON file."""
         json_path = DataManagment._get_user_json_file_path(user_id)
         with open(json_path, 'r') as file:
-            data = json.load(file) or {}
+            json_data = json.load(file) or {}
 
-        entry_id = DataManagment._get_number_of_entries() + 1
+        entry_id = DataManagment._get_number_of_entries(user_id) + 1
         
-        data[entry_id] = data  
+        json_data[entry_id] = data  
 
         with open(json_path, 'w') as file:
-            json.dump(data, file, indent=4)
+            json.dump(json_data, file, indent=4)
     
     @staticmethod  
     def json_to_dataframe(user_id):
         """Convert JSON file to a Pandas DataFrame."""
-        json_path = DataManagment._get_user_json_file_path(user_id)
-        with open(json_path, 'r') as file:
-            data = json.load(file)
+        try:
+            json_path = DataManagment._get_user_json_file_path(user_id)
+            with open(json_path, 'r') as file:
+                data = json.load(file)
 
-        # Transform the data into a DataFrame
-        df = pd.DataFrame.from_dict(data, orient='index')
-        df.index.name = 'text_id'
-        df.reset_index(inplace=True)
-        return df
+            # Transform the data into a DataFrame
+            df = pd.DataFrame.from_dict(data, orient='index')
+            df.index.name = 'text_id'
+            df.reset_index(inplace=True)
+            return df
+        except Exception as e:
+            print(e)
+            return None
+
+
+
+
+
+
+def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
+
+    gpu = True if cpu_or_gpu == 'GPU' else False
+    languages = [image_to_text_languages[selected_languages]] if isinstance(selected_languages, str) else [
+        image_to_text_languages[language] for language in selected_languages
+        ] 
+
+    reader = easyocr.Reader(languages, gpu=gpu)
+    result = reader.readtext(image_path)
+    
+    print(result)
+
+    whole_text = ' '.join([text for (bbox, text, prob) in result])
+    
+    return whole_text
