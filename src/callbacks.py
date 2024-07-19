@@ -3,7 +3,7 @@ from taipy.gui import navigate, notify
 
 from constants import notify_duration
 from page_ids import page_ids
-from tools import SignLog as sl, DataManagment as dm, image_to_text_conversion
+from tools import SignLog as sl, DataManagment as dm, image_to_text_conversion, txt_file_to_formatted_entries
 
 
 def on_sign_in(state, id, login_args):    
@@ -54,13 +54,6 @@ def on_login(state, id, login_args):
         state.user_table = dm.json_to_dataframe(state.user_email)
         notify(state, 'success', 'Successful authentification.')
         navigate(state, page_ids["root_page"])
-
-
-def on_menu(state, id, payload):
-    print(payload)
-    #selected_page = info["args"][0]
-    #print(selected_page, page_ids, page_ids[selected_page])
-    #navigate(state, to=page_ids[selected_page])
     
 
     
@@ -69,21 +62,18 @@ def on_data_entry_add(state, action, info):
         notify(state,'error', 'You must at least fill the text field (indicated with an *).')
     
     if state.tags_separator:
-        state.main_tags = [tag for tag in state.main_tags.split(state.tags_separator) if state.tags_separator in state.main_tags] if state.main_tags else state.main_tags
-        state.sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator) if state.tags_separator in state.sub_tags] if state.sub_tags else state.sub_tags
+        main_tags = [tag for tag in state.main_tags.split(state.tags_separator) if state.tags_separator in state.main_tags] if state.main_tags else state.main_tags
+        sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator) if state.tags_separator in state.sub_tags] if state.sub_tags else state.sub_tags
 
-    text_and_metadata = {
-        'text_date': state.text_date,
-        'main_tags': state.main_tags,
-        'sub_tags': state.sub_tags,
-        'text_entry': state.text_entry,
-    }
+    # Format entry
+    formatted_entry = dm.format_entry(state.text_date, main_tags, sub_tags, state.text_entry)
     # Add entry in json file
-    dm.add_entry_to_json(state.user_email, text_and_metadata)
+    dm.add_entry_to_json(state.user_email, single_entry=formatted_entry)
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
     # Udpate dataframe shown
     state.user_table = dm.json_to_dataframe(state.user_email)
+    state.text_entry = ''
     
      
     
@@ -99,7 +89,30 @@ def on_image_to_text(state, id, payload):
         )
         notify(state, 'success', 'Converted image as text', duration=notify_duration)
          
-         
-         
-def on_refresh_table(state, id, payload):
-    state.user_table = dm.json_to_dataframe(state.user_email)
+def on_txt_file_load(state, id, payload):
+    if not all([state.entry_delimiter, state.text_delimiter, state.text_file_to_load]):
+        return notify(state,'error', 'You must at least provide entry_delimiter, text_delimiter and the text file.', duration=notify_duration)
+    
+    if not all([state.date_delimiter, state.file_tags_separator, state.main_tags_delimiter, state.sub_tags_delimiter]):
+        notify(state,'warning', 'Some fields were left empty.', duration=notify_duration)
+    
+    try:
+        formatted_entries = txt_file_to_formatted_entries(
+            file_path=state.text_file_to_load,
+            entry_delimiter=state.entry_delimiter,
+            file_tags_separator=state.file_tags_separator,
+            date_delimiter=state.date_delimiter,
+            main_tags_delimiter=state.main_tags_delimiter,
+            sub_tags_delimiter=state.sub_tags_delimiter,
+            text_delimiter=state.text_delimiter
+        )
+        # Add entry in json file
+        dm.add_entry_to_json(state.user_email, multiple_entries=formatted_entries)
+        # upadte table
+        state.user_table = dm.json_to_dataframe(state.user_email)
+        
+    except Exception as e:
+        print(e)
+        return notify(state,'error', "The file couldn't be loaded", duration=notify_duration)
+    
+    notify(state,'success', 'Loaded text file as entries', duration=notify_duration)

@@ -5,7 +5,7 @@ from callbacks import (
             on_login, on_sign_in,
             on_data_entry_add,
             on_image_to_text,
-            on_refresh_table
+            on_txt_file_load
         )
 
 from tools import DataManagment as dm
@@ -15,7 +15,8 @@ from constants import (
     user_email, user_password, verify_password, 
     text_date, tags_separator, main_tags, sub_tags, text_entry, 
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
-    user_table
+    user_table, 
+    entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load, 
     )
 
 
@@ -87,7 +88,7 @@ with tgb.Page() as manage_data:
     tgb.text("## Add a single entry:", mode="md")
     with tgb.layout("1 1 1 1 1 1"):
         tgb.input("{text_date}", label='Text date')
-        tgb.input("{tags_separator}", label='Separator used to fill following fields with several values.')
+        tgb.input("{tags_separator}", label='Separator (fill fields with several values)')
         tgb.input("{main_tags}", label='Main tags')
         tgb.input("{sub_tags}", label='Sub tags')
         tgb.input("{text_entry}", label='Text to add*')
@@ -105,16 +106,32 @@ with tgb.Page() as manage_data:
                           on_action=on_image_to_text)
     with tgb.layout("1 1 1"):
         tgb.text("   ")
-        tgb.text("# {image_to_text_output}", mode="md")
+        tgb.text("{image_to_text_output}")
+    
     
     tgb.text("## Load an entire text file:", mode="md")
-    
+    with tgb.layout("1 1 1 1 1 1 1"):
+        tgb.input("{entry_delimiter}", label='Entry delimiter*')
+        tgb.input("{file_tags_separator}", label='Multi-tags separator')
+        tgb.input("{date_delimiter}", label='Date delimiter')
+        tgb.input("{main_tags_delimiter}", label='Main tags delimiter')
+        tgb.input("{sub_tags_delimiter}", label='Sub tags delimiter')
+        tgb.input("{text_delimiter}", label='Text delimiter*')
+        tgb.file_selector("{text_file_to_load}", 
+                          label="Upload your text file*", 
+                          extensions=".txt", drop_message="Drop your txt file here", 
+                          on_action=on_txt_file_load)
+        
+        
+        
+
+
 
 #user_table = "{dm.json_to_dataframe(user_email)}"
 with tgb.Page() as retrieve_data:
     tgb.text("## Your data:", mode="md")
-    
     tgb.table("{user_table}")
-    tgb.button("Load/Refresh df", on_action=on_refresh_table)
+
+
     
     

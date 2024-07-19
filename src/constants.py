@@ -4,21 +4,28 @@ import pandas as pd
 ###                    ###               
 ### SignLog constants  ###
 ###                    ###
-user_email = None 
-user_password = None 
-verify_password = None 
+user_email = '' 
+user_password = '' 
+verify_password = '' 
 
 ###                    ###               
 ###   Data constants   ###
 ###                    ###
-text_date = None
-tags_separator = None
-main_tags = None
-sub_tags = None
-text_entry = None
+text_date = ''
+tags_separator = '//'
+main_tags = ''
+sub_tags = ''
+text_entry = ''
 
 user_table = pd.DataFrame()
 
+entry_delimiter = '----'
+file_tags_separator = '//'
+date_delimiter = 'DATE:'
+main_tags_delimiter = 'MAIN_TAGS:'
+sub_tags_delimiter = 'SUB_TAGS:'
+text_delimiter = 'TEXT:'
+text_file_to_load = None
 
 ###                                ###               
 ###   Language for image to text   ###

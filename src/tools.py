@@ -4,6 +4,8 @@ import yaml
 import json
 import pandas as pd
 
+from typing import List, Dict
+
 import easyocr
 
 from constants import credentials_yaml_path, json_data_folder_path, image_to_text_languages
@@ -110,19 +112,49 @@ class DataManagment():
             data = json.load(file)
         return len(data)
     
+    @staticmethod
+    def format_entry(text_date, main_tags, sub_tags, text_entry):
+        return {
+            'text_date': text_date,
+            'main_tags': main_tags,
+            'sub_tags': sub_tags,
+            'text_entry': text_entry,
+        }
+    
     @staticmethod 
-    def add_entry_to_json(user_id, data):
+    def add_entry_to_json(user_id, single_entry=None, multiple_entries:List[Dict]=None):
         """Add an entry to the JSON file."""
+        def ignore_if_empty(entry):
+            if not entry.get('text_entry', None):
+                return True 
+            return False
+            
+        
         json_path = DataManagment._get_user_json_file_path(user_id)
         with open(json_path, 'r') as file:
             json_data = json.load(file) or {}
 
-        entry_id = DataManagment._get_number_of_entries(user_id) + 1
+        if single_entry:
+            if ignore_if_empty(single_entry): 
+                return
+            new_entry_id = DataManagment._get_number_of_entries(user_id) + 1
+            json_data[new_entry_id] = single_entry  
         
-        json_data[entry_id] = data  
+        elif multiple_entries:
+            last_entry_id = DataManagment._get_number_of_entries(user_id)
+            
+            counter = 1
+            for entry in multiple_entries:
+                if ignore_if_empty(entry): 
+                    continue
+                json_data[last_entry_id + counter] = entry  
+                counter += 1
+                
 
         with open(json_path, 'w') as file:
             json.dump(json_data, file, indent=4)
+        
+
     
     @staticmethod  
     def json_to_dataframe(user_id):
@@ -136,13 +168,11 @@ class DataManagment():
             df = pd.DataFrame.from_dict(data, orient='index')
             df.index.name = 'text_id'
             df.reset_index(inplace=True)
+            df['text_date'] = pd.to_datetime(df['text_date'])
             return df
         except Exception as e:
             print(e)
             return None
-
-
-
 
 
 
@@ -155,9 +185,46 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
     reader = easyocr.Reader(languages, gpu=gpu)
     result = reader.readtext(image_path)
-    
-    print(result)
 
     whole_text = ' '.join([text for (bbox, text, prob) in result])
     
     return whole_text
+
+
+
+def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter):
+    def _process_entry(entry):
+        date, text = '', ''
+        main_tags, sub_tags = [], []
+        
+        # Split the entry into lines
+        lines = entry.strip().split('\n')
+        
+        for i in range(len(lines)):
+            
+            # Remove date_delimiter as well as white spaces and grab the date
+            if date_delimiter in lines[i]:
+                date = lines[i].replace(date_delimiter, '').replace(' ', '')
+            # Remove main_tags delimiter, white spaces and split tags by their file_tags_separator
+            elif main_tags_delimiter in lines[i]:
+                main_t = lines[i].replace(main_tags_delimiter, '').split(file_tags_separator)
+                main_tags = [tag.replace(' ', '') for tag in main_t]
+            # Remove sub_tags delimiter, white spaces and split tags by their file_tags_separator  
+            elif sub_tags_delimiter in lines[i]:
+                sub_t = lines[i].replace(sub_tags_delimiter, '').split(file_tags_separator)
+                sub_tags = [tag.replace(' ', '') for tag in sub_t]
+            # Remove text_delimiter and grab the text
+            elif text_delimiter in lines[i]:
+                text = ' '.join(lines[i:]).replace(text_delimiter, '')
+
+        return DataManagment.format_entry(date, main_tags, sub_tags, text)
+
+
+    # Open and read the file
+    with open(file_path, 'r') as file:
+        content = file.read()
+
+    # Split the content by the delimiter
+    entries = content.split(entry_delimiter)
+    # Process each entry to retrieve data
+    return [_process_entry(entry) for entry in entries]
