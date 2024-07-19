@@ -1,5 +1,6 @@
 import os 
 import pandas as pd
+import datetime 
 
 ###                    ###               
 ### SignLog constants  ###
@@ -18,6 +19,11 @@ sub_tags = ''
 text_entry = ''
 
 user_table = pd.DataFrame()
+date_col_name = 'text_date'
+main_tags_col_name = 'main_tags'
+sub_tags_col_name = 'sub_tags'
+text_col_name = 'text_entry'
+filter_dates = [datetime.datetime(2000, 1, 1).strftime("%m/%d/%Y"),  datetime.datetime.now().strftime("%m/%d/%Y")]
 
 entry_delimiter = '----'
 file_tags_separator = '//'

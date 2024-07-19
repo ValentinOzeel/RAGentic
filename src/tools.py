@@ -8,7 +8,8 @@ from typing import List, Dict
 
 import easyocr
 
-from constants import credentials_yaml_path, json_data_folder_path, image_to_text_languages
+from constants import (credentials_yaml_path, json_data_folder_path, image_to_text_languages,
+                       date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name)
 
 def create_cred_yaml_file():
     #Initialize the YAML file with an empty dictionary.
@@ -112,20 +113,21 @@ class DataManagment():
             data = json.load(file)
         return len(data)
     
+    
     @staticmethod
     def format_entry(text_date, main_tags, sub_tags, text_entry):
         return {
-            'text_date': text_date,
-            'main_tags': main_tags,
-            'sub_tags': sub_tags,
-            'text_entry': text_entry,
+            date_col_name: text_date,
+            main_tags_col_name: main_tags,
+            sub_tags_col_name: sub_tags,
+            text_col_name: text_entry,
         }
     
     @staticmethod 
     def add_entry_to_json(user_id, single_entry=None, multiple_entries:List[Dict]=None):
         """Add an entry to the JSON file."""
         def ignore_if_empty(entry):
-            if not entry.get('text_entry', None):
+            if not entry.get(text_col_name, None):
                 return True 
             return False
             
@@ -168,12 +170,11 @@ class DataManagment():
             df = pd.DataFrame.from_dict(data, orient='index')
             df.index.name = 'text_id'
             df.reset_index(inplace=True)
-            df['text_date'] = pd.to_datetime(df['text_date'])
+            df[date_col_name] = pd.to_datetime(df[date_col_name], format='%m/%d/%Y')
             return df
         except Exception as e:
             print(e)
             return None
-
 
 
 def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):

@@ -1,7 +1,7 @@
 import taipy.gui.builder as tgb
 from taipy.gui import navigate, notify
-
-from constants import notify_duration
+import pandas as pd
+from constants import notify_duration, date_col_name
 from page_ids import page_ids
 from tools import SignLog as sl, DataManagment as dm, image_to_text_conversion, txt_file_to_formatted_entries
 
@@ -75,7 +75,6 @@ def on_data_entry_add(state, action, info):
     state.user_table = dm.json_to_dataframe(state.user_email)
     state.text_entry = ''
     
-     
     
 def on_image_to_text(state, id, payload):
     if not all([state.selected_languages, state.image_to_text_cpu_or_gpu,  state.selected_image_paths]):
@@ -116,3 +115,20 @@ def on_txt_file_load(state, id, payload):
         return notify(state,'error', "The file couldn't be loaded", duration=notify_duration)
     
     notify(state,'success', 'Loaded text file as entries', duration=notify_duration)
+    
+def on_reset_filters(state, id, payload):
+    state.user_table = dm.json_to_dataframe(state.user_email)
+    
+def on_filter_date(state, id, payload):
+    start_date, end_date = pd.to_datetime(state.filter_dates[0]), pd.to_datetime(state.filter_dates[1])
+    
+    if start_date and end_date:
+        if start_date > end_date:
+            return notify(state,'error', 'End date cannot be inferior to Start date.', duration=notify_duration)
+
+        fresh_df = dm.json_to_dataframe(state.user_email)
+        filtered_table = fresh_df[fresh_df[[date_col_name]].notnull().all(axis=1)]
+        state.user_table = filtered_table[
+            (filtered_table[date_col_name] >= start_date) & (filtered_table[date_col_name] <= end_date)
+            ]
+    

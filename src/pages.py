@@ -5,7 +5,9 @@ from callbacks import (
             on_login, on_sign_in,
             on_data_entry_add,
             on_image_to_text,
-            on_txt_file_load
+            on_txt_file_load,
+            on_filter_date,
+            on_reset_filters
         )
 
 from tools import DataManagment as dm
@@ -15,9 +17,9 @@ from constants import (
     user_email, user_password, verify_password, 
     text_date, tags_separator, main_tags, sub_tags, text_entry, 
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
-    user_table, 
+    user_table, filter_dates,
     entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load, 
-    )
+)
 
 
 ##########              ##########
@@ -132,6 +134,18 @@ with tgb.Page() as retrieve_data:
     tgb.text("## Your data:", mode="md")
     tgb.table("{user_table}")
 
+    tgb.text("## Filter your data:", mode="md")
+    
+    with tgb.layout("1 1 1 1"):
+        tgb.date_range("{filter_dates}", label_start="From:", label_end="To:", on_change=on_filter_date)
 
     
-    
+        #tgb.selector(value="{filter_main_tags}", 
+        #             lov=';'.join([str(main_tag) for main_tag in "{user_table['main_tags'].unique()}"]), 
+        #             multiple=True, dropdown=True, on_change=on_filter_main_tags)
+        #
+        #tgb.selector(value="{filter_sub_tags}", 
+        #             lov=';'.join([str(sub_tag) for sub_tag in "{user_table['sub_tags'].unique()}"]), 
+        #             multiple=True, dropdown=True, on_change=on_filter_sub_tags)
+        
+        tgb.button("Reset table", on_action=on_reset_filters)
