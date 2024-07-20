@@ -23,7 +23,15 @@ date_col_name = 'text_date'
 main_tags_col_name = 'main_tags'
 sub_tags_col_name = 'sub_tags'
 text_col_name = 'text_entry'
-filter_dates = [datetime.datetime(2000, 1, 1).strftime("%m/%d/%Y"),  datetime.datetime.now().strftime("%m/%d/%Y")]
+filter_dates = [None, None]
+user_main_tags = []
+user_sub_tags = []
+filter_strictness_choices = ['any tags', 'all tags']
+filter_strictness = filter_strictness_choices[0]
+
+filter_main_tags = []
+filter_sub_tags = []
+
 
 entry_delimiter = '----'
 file_tags_separator = '//'

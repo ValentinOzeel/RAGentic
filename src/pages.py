@@ -7,7 +7,8 @@ from callbacks import (
             on_image_to_text,
             on_txt_file_load,
             on_filter_date,
-            on_reset_filters
+            on_filter_tags,
+            on_reset_filters,
         )
 
 from tools import DataManagment as dm
@@ -17,7 +18,7 @@ from constants import (
     user_email, user_password, verify_password, 
     text_date, tags_separator, main_tags, sub_tags, text_entry, 
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
-    user_table, filter_dates,
+    user_table, user_main_tags, user_sub_tags, filter_dates, filter_strictness_choices, filter_strictness, filter_main_tags, filter_sub_tags,
     entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load, 
 )
 
@@ -132,20 +133,28 @@ with tgb.Page() as manage_data:
 #user_table = "{dm.json_to_dataframe(user_email)}"
 with tgb.Page() as retrieve_data:
     tgb.text("## Your data:", mode="md")
-    tgb.table("{user_table}")
+    tgb.table("{user_table}", editable=True)
 
     tgb.text("## Filter your data:", mode="md")
     
-    with tgb.layout("1 1 1 1"):
+    with tgb.layout("1 1 1 1 1 1"):
         tgb.date_range("{filter_dates}", label_start="From:", label_end="To:", on_change=on_filter_date)
 
-    
-        #tgb.selector(value="{filter_main_tags}", 
-        #             lov=';'.join([str(main_tag) for main_tag in "{user_table['main_tags'].unique()}"]), 
-        #             multiple=True, dropdown=True, on_change=on_filter_main_tags)
-        #
-        #tgb.selector(value="{filter_sub_tags}", 
-        #             lov=';'.join([str(sub_tag) for sub_tag in "{user_table['sub_tags'].unique()}"]), 
-        #             multiple=True, dropdown=True, on_change=on_filter_sub_tags)
+        tgb.text(' ')
+
+        tgb.selector(value="{filter_strictness}", 
+                     lov="{filter_strictness_choices}", 
+                     multiple=False, dropdown=True, label='Filter strictness')
+        
+        tgb.selector(value="{filter_main_tags}", 
+                     lov="{user_main_tags}", 
+                     multiple=True, dropdown=True, label='Main tag filter',
+                     on_change=on_filter_tags)
+        
+        tgb.selector(value="{filter_sub_tags}", 
+                     lov="{user_sub_tags}", 
+                     multiple=True, dropdown=True, label='Sub tag filter',
+                     on_change=on_filter_tags)
         
         tgb.button("Reset table", on_action=on_reset_filters)
+        

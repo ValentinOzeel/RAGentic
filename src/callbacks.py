@@ -1,7 +1,7 @@
 import taipy.gui.builder as tgb
 from taipy.gui import navigate, notify
 import pandas as pd
-from constants import notify_duration, date_col_name
+from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices
 from page_ids import page_ids
 from tools import SignLog as sl, DataManagment as dm, image_to_text_conversion, txt_file_to_formatted_entries
 
@@ -52,6 +52,9 @@ def on_login(state, id, login_args):
         state.user_email, state.user_password = user_email, user_password
         # Set user_table variable as user's json data loaded into df 
         state.user_table = dm.json_to_dataframe(state.user_email)
+        # Get all unique user's main and sub-tags values
+        state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list if tag)))
+        state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list if tag))) 
         notify(state, 'success', 'Successful authentification.')
         navigate(state, page_ids["root_page"])
     
@@ -115,20 +118,57 @@ def on_txt_file_load(state, id, payload):
         return notify(state,'error', "The file couldn't be loaded", duration=notify_duration)
     
     notify(state,'success', 'Loaded text file as entries', duration=notify_duration)
+        
     
-def on_reset_filters(state, id, payload):
-    state.user_table = dm.json_to_dataframe(state.user_email)
-    
-def on_filter_date(state, id, payload):
+def on_filter_date(state, id, payload, use_fresh_df=True):
     start_date, end_date = pd.to_datetime(state.filter_dates[0]), pd.to_datetime(state.filter_dates[1])
     
     if start_date and end_date:
         if start_date > end_date:
             return notify(state,'error', 'End date cannot be inferior to Start date.', duration=notify_duration)
 
-        fresh_df = dm.json_to_dataframe(state.user_email)
-        filtered_table = fresh_df[fresh_df[[date_col_name]].notnull().all(axis=1)]
+        df = dm.json_to_dataframe(state.user_email) if use_fresh_df else state.user_table
+        filtered_table = df[df[[date_col_name]].notnull().all(axis=1)]
         state.user_table = filtered_table[
             (filtered_table[date_col_name] >= start_date) & (filtered_table[date_col_name] <= end_date)
             ]
     
+
+def on_filter_tags(state, id, payload):
+    def filter_df(list_filter, column_name):
+        # Dynamic tag filling so need to start from fresh df
+        fresh_df = dm.json_to_dataframe(state.user_email)
+        # If non-strict filter
+        if state.filter_strictness == filter_strictness_choices[0]:
+            return fresh_df[fresh_df[column_name].apply(
+                lambda tags: any(tag in list_filter for tag in tags) if tags else False
+                )]
+        # If strict filter
+        elif state.filter_strictness == filter_strictness_choices[1]:
+            return fresh_df[fresh_df[column_name].apply(
+                lambda tags: all(tag in list_filter for tag in tags) if tags else False
+                )]    
+    
+    main_tags_filtered_df, sub_tags_filtered_df = None, None
+    # Filter main tags
+    if state.filter_main_tags:
+        main_tags_filtered_df = filter_df(state.filter_main_tags, main_tags_col_name)
+    # Filter sub tags
+    if state.filter_sub_tags:
+        sub_tags_filtered_df = filter_df(state.filter_sub_tags, sub_tags_col_name)
+    # Build final df
+    if main_tags_filtered_df is not None and sub_tags_filtered_df is None:
+        state.user_table = main_tags_filtered_df
+    elif main_tags_filtered_df is None and sub_tags_filtered_df is not None:
+        state.user_table = sub_tags_filtered_df
+    else:
+        state.user_table = pd.concat([main_tags_filtered_df, sub_tags_filtered_df]).sort_index()
+    # re-filter date if needed
+    on_filter_date(state, None, None, use_fresh_df=False)
+
+        
+def on_reset_filters(state, id, payload):
+    state.user_table = dm.json_to_dataframe(state.user_email)
+    state.filter_dates[0], state.filter_dates[1] = None, None
+    state.filter_main_tags = []
+    state.filter_sub_tags = []
