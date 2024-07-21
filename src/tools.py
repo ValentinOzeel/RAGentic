@@ -229,3 +229,138 @@ def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separato
     entries = content.split(entry_delimiter)
     # Process each entry to retrieve data
     return [_process_entry(entry) for entry in entries]
+
+
+
+
+
+#################### WORKING ON REPLACING JSON DATA MANAGMERNT WITH SQLITE DATABASE
+#################### WORKING ON REPLACING JSON DATA MANAGMERNT WITH SQLITE DATABASE
+#################### WORKING ON REPLACING JSON DATA MANAGMERNT WITH SQLITE DATABASE
+#################### WORKING ON REPLACING JSON DATA MANAGMERNT WITH SQLITE DATABASE
+
+What is needed to work on now : Efficient tags retrival 
+Storing Lists in SQLite:
+Storing as Strings: Store the list as a comma-separated string.
+Converting on Retrieval: Convert the string back to a list when reading from the database.
+Test to be carrried out
+    
+
+import os
+import sqlite3
+import pandas as pd
+from typing import List, Dict
+
+# Specify the path to the SQLite database file
+database_file_path = 'data.db'
+
+class DataManagment:
+    
+    @staticmethod
+    def _get_db_connection():
+        """Get a connection to the SQLite database."""
+        conn = sqlite3.connect(database_file_path)
+        return conn
+    
+    @staticmethod
+    def initialize_db():
+        """Initialize the SQLite database with the necessary table if not already exists."""
+        conn = DataManagment._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                text_date TEXT,
+                main_tags TEXT,
+                sub_tags TEXT,
+                text_entry TEXT
+            )
+        ''')
+        conn.commit()
+        conn.close()
+
+    @staticmethod   
+    def _get_number_of_entries(user_id):
+        """Get the number of entries in the database for a specific user."""
+        conn = DataManagment._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM entries WHERE user_id = ?', (user_id,))
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+    
+    @staticmethod
+    def format_entry(text_date, main_tags, sub_tags, text_entry):
+        return {
+            date_col_name: text_date,
+            main_tags_col_name: main_tags,
+            sub_tags_col_name: sub_tags,
+            text_col_name: text_entry,
+        }
+    
+    @staticmethod 
+    def add_entry_to_db(user_id, single_entry=None, multiple_entries:List[Dict]=None):
+        """Add an entry or multiple entries to the SQLite database."""
+        def ignore_if_empty(entry):
+            if not entry.get(text_col_name, None):
+                return True 
+            return False
+            
+        conn = DataManagment._get_db_connection()
+        cursor = conn.cursor()
+
+        if single_entry:
+            if ignore_if_empty(single_entry): 
+                return
+            cursor.execute('''
+                INSERT INTO entries (user_id, text_date, main_tags, sub_tags, text_entry)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, single_entry[date_col_name], single_entry[main_tags_col_name], 
+                  single_entry[sub_tags_col_name], single_entry[text_col_name]))
+        
+        elif multiple_entries:
+            entries_to_add = [
+                (user_id, entry[date_col_name], entry[main_tags_col_name], entry[sub_tags_col_name], entry[text_col_name])
+                for entry in multiple_entries if not ignore_if_empty(entry)
+            ]
+            cursor.executemany('''
+                INSERT INTO entries (user_id, text_date, main_tags, sub_tags, text_entry)
+                VALUES (?, ?, ?, ?, ?)
+            ''', entries_to_add)
+
+        conn.commit()
+        conn.close()
+    
+    @staticmethod  
+    def db_to_dataframe(user_id):
+        """Convert the database entries to a Pandas DataFrame for a specific user."""
+        try:
+            conn = DataManagment._get_db_connection()
+            query = 'SELECT id as text_id, text_date, main_tags, sub_tags, text_entry FROM entries WHERE user_id = ?'
+            df = pd.read_sql_query(query, conn, params=(user_id,))
+            df[date_col_name] = pd.to_datetime(df[date_col_name], format='%m/%d/%Y')
+            conn.close()
+            return df
+        except Exception as e:
+            print(e)
+            return None
+
+# Example usage
+if __name__ == '__main__':
+    DataManagment.initialize_db()
+    
+    # Adding single entry
+    single_entry = DataManagment.format_entry('01/01/2023', 'Tag1,Tag2', 'SubTag1', 'Sample text entry')
+    DataManagment.add_entry_to_db('user1', single_entry=single_entry)
+    
+    # Adding multiple entries
+    multiple_entries = [
+        DataManagment.format_entry('02/01/2023', 'Tag1,Tag3', 'SubTag2', 'Another text entry'),
+        DataManagment.format_entry('03/01/2023', 'Tag2', 'SubTag1,SubTag3', 'Yet another text entry')
+    ]
+    DataManagment.add_entry_to_db('user1', multiple_entries=multiple_entries)
+    
+    # Convert database to DataFrame
+    df = DataManagment.db_to_dataframe('user1')
+    print(df)
