@@ -364,3 +364,55 @@ if __name__ == '__main__':
     # Convert database to DataFrame
     df = DataManagment.db_to_dataframe('user1')
     print(df)
+    
+    ##### PSEUDO CO DE FOR RETRIEVAL
+    
+# Milvus setup
+class MilvusHandler:
+    def __init__(self, host='localhost', port='19530'):
+        self.milvus = Milvus(host, port)
+        self.collection_name = USER_ID
+        self.create_collection()
+
+    def create_collection(self):
+        if not self.milvus.has_collection(self.collection_name):
+            collection_param = {
+                'fields': [
+                    {'name': 'id', 'type': DataType.INT64, 'is_primary': True},
+                    {'name': 'embedding', 'type': DataType.FLOAT_VECTOR, 'params': {'dim': 768}},
+                    {'name': 'metadata', 'type': DataType.JSON}
+                ]
+            }
+            self.milvus.create_collection(self.collection_name, collection_param)
+
+    def insert_embeddings(self, embeddings, metadata):
+        ids = [i for i in range(len(embeddings))]
+        entities = [
+            {'name': 'id', 'values': ids, 'type': DataType.INT64},
+            {'name': 'embedding', 'values': embeddings, 'type': DataType.FLOAT_VECTOR},
+            {'name': 'metadata', 'values': metadata, 'type': DataType.JSON}
+        ]
+        self.milvus.insert(self.collection_name, entities)
+        self.milvus.flush([self.collection_name])
+
+    def query(self, embedding, top_k=10):
+        search_param = {'nprobe': 16}
+        query_result = self.milvus.search(
+            collection_name=self.collection_name,
+            query_records=[embedding],
+            top_k=top_k,
+            params=search_param
+        )
+        return query_result
+
+# Embedding setup
+class EmbeddingModel:
+    def __init__(self):
+        self.tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+        self.model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+
+    def embed(self, text):
+        inputs = self.tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+        with torch.no_grad():
+            embeddings = self.model(**inputs).last_hidden_state.mean(dim=1).numpy()
+        return embeddings[0]
