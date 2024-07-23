@@ -142,9 +142,11 @@ image_to_text_output = ''
 ### Miscellanous constants  ###
 ###                         ###
 
+sqlite_tags_separator = ','
+
 notify_duration = 5000 #mseconds
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 credentials_yaml_path = os.path.join(root_path, 'conf', 'app_credentials.yaml')
-json_data_folder_path = os.path.join(root_path, 'conf', 'user_files')
+sqlite_database_path = os.path.join(root_path, 'conf', 'data_sqlite.db')

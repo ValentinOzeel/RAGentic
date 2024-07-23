@@ -1,5 +1,6 @@
 app_credentials.yaml
 user_files
+data_sqlite.db
 .env
 __pycache__
 

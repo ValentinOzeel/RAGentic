@@ -3,7 +3,7 @@ from taipy.gui import navigate, notify
 import pandas as pd
 from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices
 from page_ids import page_ids
-from tools import SignLog as sl, DataManagment as dm, image_to_text_conversion, txt_file_to_formatted_entries
+from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, txt_file_to_formatted_entries, get_user_tags
 
 
 def on_sign_in(state, id, login_args):    
@@ -34,8 +34,6 @@ def on_sign_in(state, id, login_args):
                 notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
             else:
                 notify(state, 'success', 'Account successfully created!', duration=notify_duration)
-                # Initialize user's json file
-                dm.initialize_json_data_file_if_not_already(state.user_email)
                 navigate(state, page_ids["log_in"])
                 
 
@@ -51,10 +49,9 @@ def on_login(state, id, login_args):
     else:
         state.user_email, state.user_password = user_email, user_password
         # Set user_table variable as user's json data loaded into df 
-        state.user_table = dm.json_to_dataframe(state.user_email)
+        state.user_table = sm.db_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
-        state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list if tag)))
-        state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list if tag))) 
+        state = get_user_tags(state)
         notify(state, 'success', 'Successful authentification.')
         navigate(state, page_ids["root_page"])
     
@@ -69,13 +66,15 @@ def on_data_entry_add(state, action, info):
         sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator) if state.tags_separator in state.sub_tags] if state.sub_tags else state.sub_tags
 
     # Format entry
-    formatted_entry = dm.format_entry(state.text_date, main_tags, sub_tags, state.text_entry)
+    formatted_entry = sm.format_entry(state.text_date, main_tags, sub_tags, state.text_entry)
     # Add entry in json file
-    dm.add_entry_to_json(state.user_email, single_entry=formatted_entry)
+    sm.add_entry_to_db(state.user_email, single_entry=formatted_entry)
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
     # Udpate dataframe shown
-    state.user_table = dm.json_to_dataframe(state.user_email)
+    state.user_table = sm.db_to_dataframe(state.user_email)
+    # Get all unique user's main and sub-tags values
+    state = get_user_tags(state)
     state.text_entry = ''
     
     
@@ -109,9 +108,11 @@ def on_txt_file_load(state, id, payload):
             text_delimiter=state.text_delimiter
         )
         # Add entry in json file
-        dm.add_entry_to_json(state.user_email, multiple_entries=formatted_entries)
+        sm.add_entry_to_db(state.user_email, multiple_entries=formatted_entries)
         # upadte table
-        state.user_table = dm.json_to_dataframe(state.user_email)
+        state.user_table = sm.db_to_dataframe(state.user_email)
+        # Get all unique user's main and sub-tags values
+        state = get_user_tags(state)
         
     except Exception as e:
         print(e)
@@ -127,7 +128,7 @@ def on_filter_date(state, id, payload, use_fresh_df=True):
         if start_date > end_date:
             return notify(state,'error', 'End date cannot be inferior to Start date.', duration=notify_duration)
 
-        df = dm.json_to_dataframe(state.user_email) if use_fresh_df else state.user_table
+        df = sm.db_to_dataframe(state.user_email) if use_fresh_df else state.user_table
         filtered_table = df[df[[date_col_name]].notnull().all(axis=1)]
         state.user_table = filtered_table[
             (filtered_table[date_col_name] >= start_date) & (filtered_table[date_col_name] <= end_date)
@@ -137,7 +138,7 @@ def on_filter_date(state, id, payload, use_fresh_df=True):
 def on_filter_tags(state, id, payload):
     def filter_df(list_filter, column_name):
         # Dynamic tag filling so need to start from fresh df
-        fresh_df = dm.json_to_dataframe(state.user_email)
+        fresh_df = sm.db_to_dataframe(state.user_email)
         # If non-strict filter
         if state.filter_strictness == filter_strictness_choices[0]:
             return fresh_df[fresh_df[column_name].apply(
@@ -168,7 +169,7 @@ def on_filter_tags(state, id, payload):
 
         
 def on_reset_filters(state, id, payload):
-    state.user_table = dm.json_to_dataframe(state.user_email)
+    state.user_table = sm.db_to_dataframe(state.user_email)
     state.filter_dates[0], state.filter_dates[1] = None, None
     state.filter_main_tags = []
     state.filter_sub_tags = []

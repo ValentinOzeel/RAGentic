@@ -11,8 +11,6 @@ from callbacks import (
             on_reset_filters,
         )
 
-from tools import DataManagment as dm
-
 from page_ids import page_ids
 from constants import (
     user_email, user_password, verify_password, 
