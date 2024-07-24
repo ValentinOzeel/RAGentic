@@ -1,6 +1,9 @@
 import os 
 import pandas as pd
 import datetime 
+import torch
+
+from typing import Tuple
 
 ###                    ###               
 ### SignLog constants  ###
@@ -142,11 +145,27 @@ image_to_text_output = ''
 ### Miscellanous constants  ###
 ###                         ###
 
-sqlite_tags_separator = ','
 
 notify_duration = 5000 #mseconds
+
+sqlite_tags_separator = ','
+
+
+embeddings_model_name = "infgrad/stella_en_400M_v5"
+stella_en_embeddings_query_prompt_query = "s2p_query"
+stella_en_embeddings_query_prompt_semantic = "s2s_query"
+# "infgrad/stella_en_400M_v5" model supports two prompts: "s2p_query" and "s2s_query" for sentence-to-passage and sentence-to-sentence tasks, respectively.
+def embeddings_query_prompt(mode:str):
+    if mode in ['semantic', 'query']:
+        return stella_en_embeddings_query_prompt_semantic if mode == 'semantic' else stella_en_embeddings_query_prompt_query
+    else:
+        return stella_en_embeddings_query_prompt_query
+
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 credentials_yaml_path = os.path.join(root_path, 'conf', 'app_credentials.yaml')
 sqlite_database_path = os.path.join(root_path, 'conf', 'data_sqlite.db')
+milvus_database_path = os.path.join(root_path, 'conf', 'data_milvus.db')

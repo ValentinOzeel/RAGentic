@@ -1,18 +1,30 @@
 import os
 import time
 import regex as re
+from typing import List, Dict, Union
+
+from contextlib import contextmanager
+import pandas as pd
+import numpy as np
+
 import yaml
 import json
 import sqlite3
-from contextlib import contextmanager
-import pandas as pd
-
-from typing import List, Dict
 
 import easyocr
+from sentence_transformers import SentenceTransformer
+from langchain_core.documents import Document
+from langchain.embeddings.base import Embeddings
+from langchain_community.vectorstores import Milvus
 
-from constants import (credentials_yaml_path, sqlite_database_path, image_to_text_languages,
-                       sqlite_tags_separator, date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name)
+
+from constants import (credentials_yaml_path, 
+                       sqlite_database_path, sqlite_tags_separator,
+                       device,
+                       milvus_database_path, 
+                       embeddings_model_name, embeddings_query_prompt,
+                       image_to_text_languages,
+                       date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name)
 
 def create_cred_yaml_file():
     #Initialize the YAML file with an empty dictionary.
@@ -105,6 +117,17 @@ class SQLiteManagment:
     '''
 
     @staticmethod
+    @contextmanager
+    def get_db_connection():
+        """Get a connection to the SQLite database and close it when context ends (after user action)."""
+        conn = sqlite3.connect(sqlite_database_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
+            
+            
+    @staticmethod
     def initialize_db():
         """Initialize the SQLite database with the necessary table if not already exists."""
         with SQLiteManagment.get_db_connection() as conn:
@@ -121,17 +144,6 @@ class SQLiteManagment:
             ''')
             conn.commit()
             
-            
-    @staticmethod
-    @contextmanager
-    def get_db_connection():
-        """Get a connection to the SQLite database and close it when context ends (after user action)."""
-        conn = sqlite3.connect(sqlite_database_path)
-        try:
-            yield conn
-        finally:
-            conn.close()
-
 
     @staticmethod   
     def _get_number_of_entries(user_id):
@@ -142,19 +154,8 @@ class SQLiteManagment:
             count = cursor.fetchone()[0]
             return count
     
-    @staticmethod
-    def format_entry(text_date, main_tags, sub_tags, text_entry):
-        main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
-        sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
-        return {
-            date_col_name: text_date,
-            main_tags_col_name: main_tags,
-            sub_tags_col_name: sub_tags,
-            text_col_name: text_entry,
-        }
-    
     @staticmethod 
-    def add_entry_to_db(user_id, single_entry=None, multiple_entries: List[Dict] = None):
+    def add_entry_to_sqlite(user_id, single_entry=None, multiple_entries: List[Dict] = None):
         """Add an entry or multiple entries to the SQLite database."""
         def ignore_if_empty(entry):
             return not entry.get(text_col_name, None)
@@ -210,7 +211,7 @@ class SQLiteManagment:
 
         
     @staticmethod  
-    def db_to_dataframe(user_id):
+    def sqlite_to_dataframe(user_id):
         """Convert the database entries to a Pandas DataFrame for a specific user."""
         try:
             with SQLiteManagment.get_db_connection() as conn:
@@ -246,6 +247,16 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
 
 
+def format_entry(text_date, main_tags, sub_tags, text_entry):
+    main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
+    sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
+    return {
+        date_col_name: text_date,
+        main_tags_col_name: main_tags,
+        sub_tags_col_name: sub_tags,
+        text_col_name: text_entry,
+    }
+
 def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter):
     def _process_entry(entry):
         date, text = '', ''
@@ -271,7 +282,7 @@ def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separato
             elif text_delimiter in lines[i]:
                 text = ' '.join(lines[i:]).replace(text_delimiter, '')
 
-        return SQLiteManagment.format_entry(date, main_tags, sub_tags, text)
+        return format_entry(date, main_tags, sub_tags, text)
 
 
     # Open and read the file
@@ -285,34 +296,77 @@ def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separato
 
 
 
-def get_user_tags(state):
-    # Get all unique user's main and sub-tags values
-    if isinstance(state.user_table, pd.DataFrame):
-        state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list if tag)))
-        state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list if tag))) 
-    return state
+class SentenceTransformersEmbeddings(Embeddings):
+    def __init__(self, model_name: str = embeddings_model_name):
+        # Initialize the SentenceTransformer model using GPU or CPU
+        self.model = SentenceTransformer(model_name, trust_remote_code=True).cuda() if device == 'cuda' else SentenceTransformer(model_name, trust_remote_code=True)
+        
+    def embed_documents(self, documents):
+        """
+        Embed a list of documents (sentences or paragraphs) using the SentenceTransformer model.
+        Parameters:
+        documents (list of str): List of text documents to embed.
+        Returns:
+        numpy.ndarray: Array of embeddings.
+        """
+        # Use the model to encode the documents
+        embeddings = self.model.encode(documents)
+        # Convert embeddings to numpy array
+        return embeddings.cpu().numpy()
+    
+    def embed_query(self, query, task=None, mode='semantic'):
+        """
+        Embed a single query (sentence) using the SentenceTransformer model.
+        Parameters:
+        query (str): The query to embed.
+        task (str): Embeddings prompt intructions 
+        mode (str): Embeddings prompt mode for models that don't take task
+        Returns:
+        numpy.ndarray: The query embedding.
+        """
+        # Some model requiere a task
+        if task:
+            embeddings = model.encode(f'Instruct: {task}\nQuery: {query}')
+        # Some models requiere a prompt name
+        elif mode:
+            embeddings = model.encode(query, prompt_name=embeddings_query_prompt(mode))
+        # Convert embedding to numpy array
+        return embeddings.cpu().numpy()
 
 
-    ##### PSEUDO CO DE FOR RETRIEVAL
+class LangMilvusManagment:
+    _lang_milvus = Milvus()
+    
+    @staticmethod
+    def initialize_milvus_db():
+        from pymilvus import MilvusClient
+        client = MilvusClient(milvus_database_path)
+        
+    @staticmethod
+    def _texts_to_documents(entries:Union[List[dict], dict]):
+        
+        if isinstance(entries, List):
+            return [
+                Document(
+                    page_content=entry_dict[text_col_name], 
+                    metadata={
+                        date_col_name: entry_dict[date_col_name], 
+                        main_tags_col_name: entry_dict[main_tags_col_name],
+                        sub_tags_col_name: entry_dict[sub_tags_col_name]
+                        }
+                    ) for entry_dict in entries
+                ] 
+
+        else:
+            return Document(
+                    page_content=entries[text_col_name], 
+                    metadata={
+                        date_col_name: entries[date_col_name], 
+                        main_tags_col_name: entries[main_tags_col_name],
+                        sub_tags_col_name: entries[sub_tags_col_name]
+                        }
+                    )
+
+
     
     
-#    
-#    
-#at login :
-#    check if all doc text in sqlite are in milvus otherwise add them
-#    If user add text / file, add them in milvus too 
-#    
-#  embedding:
-#      # ！The default dimension is 1024, if you need other dimensions, please clone the model and modify `modules.json` to replace `2_Dense_1024` with another dimension, e.g. `2_Dense_256` or `2_Dense_8192` !
-#model = SentenceTransformer("infgrad/stella_en_400M_v5", trust_remote_code=True).cuda()
-#query_embeddings = model.encode(queries, prompt_name=query_prompt_name)
-#doc_embeddings = model.encode(docs)
-#print(query_embeddings.shape, doc_embeddings.shape)
-## (2, 1024) (2, 1024)
-#
-#similarities = model.similarity(query_embeddings, doc_embeddings)
-#print(similarities)   
-#    
-#class LangMilvRAG():
-#    def __init__(self):
-#        

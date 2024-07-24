@@ -1,6 +1,6 @@
 from taipy.gui import Gui
 
-from tools import create_cred_yaml_file, SQLiteManagment
+from tools import create_cred_yaml_file, SQLiteManagment, LangMilvusManagment
 from pages import (
     welcome,
     init,
@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     # Initialize the database (creates the file and table if not exists)
     SQLiteManagment.initialize_db()
-    
+    LangMilvusManagment.initialize_milvus_db()
     pages = {
         page_ids["init"]: init,
         page_ids['welcome']: welcome,

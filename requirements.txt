@@ -1,2 +1,6 @@
 taipy
 easyocr
+sentence-transformers
+pymilvus
+langchain
+langchain-milvus
