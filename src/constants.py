@@ -22,6 +22,7 @@ sub_tags = ''
 text_entry = ''
 
 user_table = pd.DataFrame()
+retrieval_data = pd.DataFrame()
 date_col_name = 'text_date'
 main_tags_col_name = 'main_tags'
 sub_tags_col_name = 'sub_tags'
@@ -35,6 +36,14 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
+retrieval_query = ''
+retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
+retrieval_search_type = ''
+k_outputs_retrieval = 5
+retrieval_main_tags = []
+retrieval_sub_tags = []
+retrieval_results = ''
+                     
 
 entry_delimiter = '----'
 file_tags_separator = '//'
@@ -150,7 +159,11 @@ notify_duration = 5000 #mseconds
 
 sqlite_tags_separator = ','
 
-
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# ！The default dimension is 1024.
+# if you need other dimensions, please clone the model (https://huggingface.co/dunzhang/stella_en_400M_v5) and modify `modules.json` 
+# to replace `2_Dense_1024` with another dimension, e.g. `2_Dense_256` or `2_Dense_8192` (512, 768, 1024, 2048, 4096, 6144 and 8192) !
+vector_dimensions = 1024
 embeddings_model_name = "infgrad/stella_en_400M_v5"
 stella_en_embeddings_query_prompt_query = "s2p_query"
 stella_en_embeddings_query_prompt_semantic = "s2s_query"
@@ -161,8 +174,12 @@ def embeddings_query_prompt(mode:str):
     else:
         return stella_en_embeddings_query_prompt_query
 
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+#https://api.python.langchain.com/en/latest/vectorstores/langchain_community.vectorstores.milvus.Milvus.html
+base_type_search = "similarity" # can be “similarity”, “mmr”, or “similarity_score_threshold”
+k_outputs = 15
+relevance_threshold = 0.5
+mmr_fetch_k = 50 # documents for the MMR algorithm to consider
+mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diversity and 0 for maximum.
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

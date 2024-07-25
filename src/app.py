@@ -22,6 +22,7 @@ if __name__ == "__main__":
     # Initialize the database (creates the file and table if not exists)
     SQLiteManagment.initialize_db()
     LangMilvusManagment.initialize_milvus_db()
+    
     pages = {
         page_ids["init"]: init,
         page_ids['welcome']: welcome,

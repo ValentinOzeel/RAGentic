@@ -9,6 +9,7 @@ from callbacks import (
             on_filter_date,
             on_filter_tags,
             on_reset_filters,
+            on_retrieval_query,
         )
 
 from page_ids import page_ids
@@ -17,9 +18,9 @@ from constants import (
     text_date, tags_separator, main_tags, sub_tags, text_entry, 
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
     user_table, user_main_tags, user_sub_tags, filter_dates, filter_strictness_choices, filter_strictness, filter_main_tags, filter_sub_tags,
-    entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load, 
+    entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load,
+    retrieval_query, retrieval_search_type_possibilities, retrieval_search_type, retrieval_main_tags, retrieval_sub_tags, retrieval_results
 )
-
 
 ##########              ##########
 ########## SIGNin/LOGin ##########
@@ -125,10 +126,6 @@ with tgb.Page() as manage_data:
         
         
         
-
-
-
-#user_table = "{dm.json_to_dataframe(user_email)}"
 with tgb.Page() as retrieve_data:
     tgb.text("## Your data:", mode="md")
     tgb.table("{user_table}", editable=True)
@@ -156,3 +153,26 @@ with tgb.Page() as retrieve_data:
         
         tgb.button("Reset table", on_action=on_reset_filters)
         
+        
+    tgb.text('\n \n ')
+    tgb.text("## Retrieve data with query:", mode="md")
+    tgb.text('\n \n ')
+    
+    with tgb.layout("1 1 1 1"):
+        tgb.selector("{retrieval_search_type}", lov=retrieval_search_type_possibilities, dropdown=True)
+        
+        tgb.slider("{k_outputs_retrieval}", min="1", max="15")
+        
+        tgb.selector(value="{retrieval_main_tags}", 
+                     lov="{user_main_tags}", 
+                     multiple=True, dropdown=True, label='Retrieval main tag filter')
+        
+        tgb.selector(value="{retrieval_sub_tags}", 
+                     lov="{user_sub_tags}", 
+                     multiple=True, dropdown=True, label='Retrieval sub tag filter',)
+        
+    with tgb.layout("1 1"):
+        tgb.input("{retrieval_query}", label='Entry delimiter*')
+        tgb.button("Send query", on_action=on_retrieval_query)
+        
+    tgb.text('{retrieval_results}')

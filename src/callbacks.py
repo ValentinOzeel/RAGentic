@@ -1,9 +1,10 @@
 import taipy.gui.builder as tgb
 from taipy.gui import navigate, notify
 import pandas as pd
-from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices
+from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, base_type_search, k_outputs
+
 from page_ids import page_ids
-from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries
+from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangMilvusManagment as lmm
 
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
@@ -15,6 +16,7 @@ def _get_user_tags(state):
 def on_sign_in(state, id, login_args):    
     # State corresponding values
     acc_creation_values = [state.user_email, state.user_password, state.verify_password]
+
     # Notify error if all fields are not filled
     if not all(element for element in acc_creation_values):
         notify(state, 'error', 'All fields are required to be filled in!', duration=notify_duration)
@@ -39,6 +41,8 @@ def on_sign_in(state, id, login_args):
             if not status:
                 notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
             else:
+                # Create a Milvus database collection for the new user
+                lmm.initialize_milvus_db_collection(state.user_email)
                 notify(state, 'success', 'Account successfully created!', duration=notify_duration)
                 navigate(state, page_ids["log_in"])
                 
@@ -54,10 +58,12 @@ def on_login(state, id, login_args):
         
     else:
         state.user_email, state.user_password = user_email, user_password
-        # Set user_table variable as user's json data loaded into df 
+        # Set user_table variable as user's sqlite data loaded into df 
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
         state = _get_user_tags(state)
+        # Access Milvus collection
+        state.lang_milvus_user_vdb = lmm.access_lang_milvus_vdb(state.user_email)
         notify(state, 'success', 'Successful authentification.')
         navigate(state, page_ids["root_page"])
     
@@ -71,10 +77,16 @@ def on_data_entry_add(state, action, info):
         main_tags = [tag for tag in state.main_tags.split(state.tags_separator) if state.tags_separator in state.main_tags] if state.main_tags else state.main_tags
         sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator) if state.tags_separator in state.sub_tags] if state.sub_tags else state.sub_tags
 
-    # Format entry
-    formatted_entry = format_entry(state.text_date, main_tags, sub_tags, state.text_entry)
-    # Add entry in json file
-    sm.add_entry_to_sqlite(state.user_email, single_entry=formatted_entry)
+    # Add entry in sqlite
+    sm.add_entry_to_sqlite(
+        state.user_email, 
+        single_entry=format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
+        )
+    # Add embedded entry in Milvus
+    lmm.add_entry_to_milvus(
+        state.lang_milvus_user_vdb, 
+        format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='milvus')
+        )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
     # Udpate dataframe shown
@@ -104,17 +116,26 @@ def on_txt_file_load(state, id, payload):
         notify(state,'warning', 'Some fields were left empty.', duration=notify_duration)
     
     try:
-        formatted_entries = txt_file_to_formatted_entries(
-            file_path=state.text_file_to_load,
-            entry_delimiter=state.entry_delimiter,
-            file_tags_separator=state.file_tags_separator,
-            date_delimiter=state.date_delimiter,
-            main_tags_delimiter=state.main_tags_delimiter,
-            sub_tags_delimiter=state.sub_tags_delimiter,
-            text_delimiter=state.text_delimiter
-        )
-        # Add entry in json file
-        sm.add_entry_to_sqlite(state.user_email, multiple_entries=formatted_entries)
+        format_kwargs = {
+            'file_path':state.text_file_to_load,
+            'entry_delimiter':state.entry_delimiter,
+            'file_tags_separator':state.file_tags_separator,
+            'date_delimiter':state.date_delimiter,
+            'main_tags_delimiter':state.main_tags_delimiter,
+            'sub_tags_delimiter':state.sub_tags_delimiter,
+            'text_delimiter':state.text_delimiter
+        }
+
+        # Add entry in sqlite
+        sm.add_entry_to_sqlite(
+            state.user_email, 
+            multiple_entries=txt_file_to_formatted_entries(**format_kwargs, format='sqlite')
+            )
+        # Add embedded entry in Milvus
+        lmm.add_entry_to_milvus(
+            state.lang_milvus_user_vdb, 
+            txt_file_to_formatted_entries(**format_kwargs, format='milvus')
+            )
         # upadte table
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
@@ -179,3 +200,24 @@ def on_reset_filters(state, id, payload):
     state.filter_dates[0], state.filter_dates[1] = None, None
     state.filter_main_tags = []
     state.filter_sub_tags = []
+    
+    
+def on_retrieval_query(state, id, payload):
+    
+    retrieved_docs = lmm.retrieval(
+        query=state.retrieval_query,
+        lang_milvus_vdb = state.lang_milvus_user_vdb,
+        filters= {main_tags_col_name:state.retrieval_main_tags, sub_tags_col_name:state.retrieval_sub_tags},
+        k_outputs= state.k_outputs_retrieval if state.k_outputs_retrieval else k_outputs,
+        search_type= state.retrieval_search_type if state.retrieval_search_type else base_type_search,
+        )
+    
+    state.retrieval_results = '\n------------------\n'.join(
+        [f'{doc.page_content}\n\
+            Date: {doc.metadata[date_col_name]}\
+            Main tags: {doc.metadata[main_tags_col_name]}\
+            Sub tags: {doc.metadata[sub_tags_col_name]}'
+        ] for doc in retrieved_docs
+    )
+    
+

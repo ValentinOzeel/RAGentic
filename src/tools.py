@@ -1,7 +1,7 @@
 import os
 import time
 import regex as re
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Literal
 
 from contextlib import contextmanager
 import pandas as pd
@@ -15,16 +15,20 @@ import easyocr
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
-from langchain_community.vectorstores import Milvus
+from langchain_milvus.vectorstores import Milvus
 
+from pymilvus import MilvusClient
 
 from constants import (credentials_yaml_path, 
+                       image_to_text_languages,
+                       date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
                        device,
                        milvus_database_path, 
-                       embeddings_model_name, embeddings_query_prompt,
-                       image_to_text_languages,
-                       date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name)
+                       embeddings_model_name, embeddings_query_prompt, vector_dimensions,
+                       base_type_search, k_outputs, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
+)
+
 
 def create_cred_yaml_file():
     #Initialize the YAML file with an empty dictionary.
@@ -247,9 +251,10 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
 
 
-def format_entry(text_date, main_tags, sub_tags, text_entry):
-    main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
-    sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
+def format_entry(text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'milvus']='sqlite'):
+    if format == 'sqlite':
+        main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
+        sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
     return {
         date_col_name: text_date,
         main_tags_col_name: main_tags,
@@ -257,7 +262,8 @@ def format_entry(text_date, main_tags, sub_tags, text_entry):
         text_col_name: text_entry,
     }
 
-def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter):
+def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
+                                  format:Literal['sqlite', 'milvus']='sqlite'):
     def _process_entry(entry):
         date, text = '', ''
         main_tags, sub_tags = [], []
@@ -272,12 +278,14 @@ def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separato
                 date = lines[i].replace(date_delimiter, '').replace(' ', '')
             # Remove main_tags delimiter, white spaces and split tags by their file_tags_separator
             elif main_tags_delimiter in lines[i]:
-                main_t = lines[i].replace(main_tags_delimiter, '').split(file_tags_separator)
-                main_tags = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_t])
+                main_tags = lines[i].replace(main_tags_delimiter, '').split(file_tags_separator)
+                # Format tags to sqlite (string) or leave it as list
+                main_tags = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
             # Remove sub_tags delimiter, white spaces and split tags by their file_tags_separator  
             elif sub_tags_delimiter in lines[i]:
-                sub_t = lines[i].replace(sub_tags_delimiter, '').split(file_tags_separator)
-                sub_tags = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_t])
+                sub_tags = lines[i].replace(sub_tags_delimiter, '').split(file_tags_separator)
+                # Format tags to sqlite (string) or leave it as list
+                sub_tags = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else main_tags
             # Remove text_delimiter and grab the text
             elif text_delimiter in lines[i]:
                 text = ' '.join(lines[i:]).replace(text_delimiter, '')
@@ -326,25 +334,40 @@ class SentenceTransformersEmbeddings(Embeddings):
         """
         # Some model requiere a task
         if task:
-            embeddings = model.encode(f'Instruct: {task}\nQuery: {query}')
+            embeddings = self.model.encode(f'Instruct: {task}\nQuery: {query}')
         # Some models requiere a prompt name
         elif mode:
-            embeddings = model.encode(query, prompt_name=embeddings_query_prompt(mode))
+            embeddings = self.model.encode(query, prompt_name=embeddings_query_prompt(mode))
         # Convert embedding to numpy array
         return embeddings.cpu().numpy()
 
 
 class LangMilvusManagment:
-    _lang_milvus = Milvus()
     
     @staticmethod
     def initialize_milvus_db():
-        from pymilvus import MilvusClient
         client = MilvusClient(milvus_database_path)
         
     @staticmethod
-    def _texts_to_documents(entries:Union[List[dict], dict]):
+    def initialize_milvus_db_collection(user_id):
+        client = MilvusClient(milvus_database_path)
         
+        if not client.has_collection(collection_name=user_id):
+            client.create_collection(
+                collection_name=user_id,
+                dimension=vector_dimensions,  # The dimension of vectors that will be stored
+            )
+
+    @staticmethod
+    def access_lang_milvus_vdb(user_id):
+        return Milvus(
+            SentenceTransformersEmbeddings(),
+            connection_args={"uri": milvus_database_path},
+            collection_name=user_id,
+        )
+        
+    @staticmethod
+    def _texts_to_documents(entries:Union[List[dict], dict]):
         if isinstance(entries, List):
             return [
                 Document(
@@ -358,7 +381,8 @@ class LangMilvusManagment:
                 ] 
 
         else:
-            return Document(
+            return list(
+                Document(
                     page_content=entries[text_col_name], 
                     metadata={
                         date_col_name: entries[date_col_name], 
@@ -366,7 +390,38 @@ class LangMilvusManagment:
                         sub_tags_col_name: entries[sub_tags_col_name]
                         }
                     )
+            )
 
 
-    
-    
+    @staticmethod
+    def add_entry_to_milvus(lang_milvus_vdb, formatted_entries:List):
+        documents_entries = LangMilvusManagment._texts_to_documents(formatted_entries)
+        lang_milvus_vdb.add_documents(documents=documents_entries)
+        
+    @staticmethod
+    def retrieval(query, lang_milvus_vdb, filters:Dict={}, k_outputs:int=k_outputs, search_type:str = base_type_search):
+        # Build search_kwargs
+        search_kwargs = {'k': k_outputs, 'filter': filters}
+        # kwargs specific to "similarity_score_threshold" and "mmr"
+        if search_type == "similarity_score_threshold":
+            search_kwargs['score_threshold'] = relevance_threshold
+        elif search_type == "mmr":
+            search_kwargs['fetch_k'] = mmr_fetch_k
+            search_kwargs['lambda_mult'] = mmr_lambda_mult       
+        
+        # Get retrieval engine
+        retriever = lang_milvus_vdb.as_retriever(
+            search_type=search_type,
+            search_kwargs=search_kwargs
+            )
+        # Retrieve docs
+        retrieved_docs = retriever.invoke(query)
+        return [
+            {
+                text_col_name: doc.page_content, 
+                date_col_name: doc.metadata[date_col_name],
+                main_tags_col_name: doc.metadata[main_tags_col_name],
+                sub_tags_col_name: doc.metadata[sub_tags_col_name]
+                }
+            for doc in retrieved_docs
+            ]
