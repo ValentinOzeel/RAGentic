@@ -5,3 +5,7 @@ pymilvus
 langchain
 langchain-milvus
 langchain-community
+langchain-qdrant
+fastembed
+qdrant-client
+xformers

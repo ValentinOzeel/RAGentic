@@ -4,7 +4,7 @@ import pandas as pd
 from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, base_type_search, k_outputs
 
 from page_ids import page_ids
-from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangMilvusManagment as lmm
+from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangVdb as lvdb
 
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
@@ -17,12 +17,14 @@ def on_sign_in(state, id, login_args):
     # State corresponding values
     acc_creation_values = [state.user_email, state.user_password, state.verify_password]
 
+
     # Notify error if all fields are not filled
     if not all(element for element in acc_creation_values):
         notify(state, 'error', 'All fields are required to be filled in!', duration=notify_duration)
     # If they are, check the email adress' validity
     else:
         e_check = sl.email_check(state.user_email)
+        
         if not e_check:
             notify(state, 'error', 'Incorrect email address!', duration=notify_duration)
             
@@ -41,12 +43,12 @@ def on_sign_in(state, id, login_args):
             if not status:
                 notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
             else:
-                # Create a Milvus database collection for the new user
-                lmm.initialize_milvus_db_collection(state.user_email)
+                # Create a vector database collection for the new user
+                lvdb.initialize_vdb_collection(state.user_email)
                 notify(state, 'success', 'Account successfully created!', duration=notify_duration)
                 navigate(state, page_ids["log_in"])
                 
-
+                
 def on_login(state, id, login_args):
     user_email, user_password = login_args["args"][:2]
     # Check whether fields have been filled
@@ -62,8 +64,8 @@ def on_login(state, id, login_args):
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
         state = _get_user_tags(state)
-        # Access Milvus collection
-        state.lang_milvus_user_vdb = lmm.access_lang_milvus_vdb(state.user_email)
+        # Access vdb collection
+        state.lang_user_vdb = lvdb.access_vdb(state.user_email)
         notify(state, 'success', 'Successful authentification.')
         navigate(state, page_ids["root_page"])
     
@@ -82,10 +84,10 @@ def on_data_entry_add(state, action, info):
         state.user_email, 
         single_entry=format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
         )
-    # Add embedded entry in Milvus
-    lmm.add_entry_to_milvus(
-        state.lang_milvus_user_vdb, 
-        format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='milvus')
+    # Add embedded entry in vdb
+    lvdb.add_entry_to_vdb(
+        state.lang_user_vdb, 
+        format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='vdb')
         )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
@@ -131,10 +133,10 @@ def on_txt_file_load(state, id, payload):
             state.user_email, 
             multiple_entries=txt_file_to_formatted_entries(**format_kwargs, format='sqlite')
             )
-        # Add embedded entry in Milvus
-        lmm.add_entry_to_milvus(
-            state.lang_milvus_user_vdb, 
-            txt_file_to_formatted_entries(**format_kwargs, format='milvus')
+        # Add embedded entry in vdb
+        lvdb.add_entry_to_vdb(
+            state.lang_user_vdb, 
+            txt_file_to_formatted_entries(**format_kwargs, format='vdb')
             )
         # upadte table
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
@@ -203,21 +205,14 @@ def on_reset_filters(state, id, payload):
     
     
 def on_retrieval_query(state, id, payload):
-    
-    retrieved_docs = lmm.retrieval(
-        query=state.retrieval_query,
-        lang_milvus_vdb = state.lang_milvus_user_vdb,
+    print('\n\n\n\n\n\nOUTPUTS', state.k_outputs_retrieval, k_outputs)
+    state.retrieval_results = lvdb.retrieval(
+        query= state.retrieval_query,
+        lang_vdb= state.lang_user_vdb,
+        rerank= False,
         filters= {main_tags_col_name:state.retrieval_main_tags, sub_tags_col_name:state.retrieval_sub_tags},
         k_outputs= state.k_outputs_retrieval if state.k_outputs_retrieval else k_outputs,
         search_type= state.retrieval_search_type if state.retrieval_search_type else base_type_search,
+        str_format_results=True
         )
     
-    state.retrieval_results = '\n------------------\n'.join(
-        [f'{doc.page_content}\n\
-            Date: {doc.metadata[date_col_name]}\
-            Main tags: {doc.metadata[main_tags_col_name]}\
-            Sub tags: {doc.metadata[sub_tags_col_name]}'
-        ] for doc in retrieved_docs
-    )
-    
-

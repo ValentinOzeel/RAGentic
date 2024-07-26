@@ -1,6 +1,7 @@
 app_credentials.yaml
 user_files
 data_sqlite.db
+data_qdrant.db
 .env
 __pycache__
 

@@ -39,11 +39,12 @@ filter_sub_tags = []
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
 retrieval_search_type = ''
-k_outputs_retrieval = 5
+k_outputs_retrieval = 1
 retrieval_main_tags = []
 retrieval_sub_tags = []
 retrieval_results = ''
-                     
+
+lang_user_vdb = None         
 
 entry_delimiter = '----'
 file_tags_separator = '//'
@@ -173,10 +174,14 @@ def embeddings_query_prompt(mode:str):
         return stella_en_embeddings_query_prompt_semantic if mode == 'semantic' else stella_en_embeddings_query_prompt_query
     else:
         return stella_en_embeddings_query_prompt_query
+    
+sparse_embeddings_model_name = "Qdrant/BM25"
+vdb = 'qdrant'
+retrieval_mode = 'dense' # 'dense', 'sparse', 'hybrid'
+retrieval_rerank_flag = True
 
-#https://api.python.langchain.com/en/latest/vectorstores/langchain_community.vectorstores.milvus.Milvus.html
 base_type_search = "similarity" # can be “similarity”, “mmr”, or “similarity_score_threshold”
-k_outputs = 15
+k_outputs = 5
 relevance_threshold = 0.5
 mmr_fetch_k = 50 # documents for the MMR algorithm to consider
 mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diversity and 0 for maximum.
@@ -186,3 +191,4 @@ root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 credentials_yaml_path = os.path.join(root_path, 'conf', 'app_credentials.yaml')
 sqlite_database_path = os.path.join(root_path, 'conf', 'data_sqlite.db')
 milvus_database_path = os.path.join(root_path, 'conf', 'data_milvus.db')
+qdrant_database_path = os.path.join(root_path, 'conf', 'data_qdrant.db')

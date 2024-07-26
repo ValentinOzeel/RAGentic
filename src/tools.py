@@ -12,20 +12,31 @@ import json
 import sqlite3
 
 import easyocr
+
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
-from langchain_milvus.vectorstores import Milvus
-
+# Vector databases
 from pymilvus import MilvusClient
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue
+# Langchain integreation
+from langchain_milvus.vectorstores import Milvus
+from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import FastEmbedSparse, RetrievalMode
+# Rerank
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import FlashrankRerank
+
+
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
                        date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
                        device,
-                       milvus_database_path, 
-                       embeddings_model_name, embeddings_query_prompt, vector_dimensions,
+                       vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank_flag,
+                       embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
                        base_type_search, k_outputs, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
 )
 
@@ -251,7 +262,7 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
 
 
-def format_entry(text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'milvus']='sqlite'):
+def format_entry(text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
     if format == 'sqlite':
         main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
         sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
@@ -263,7 +274,7 @@ def format_entry(text_date, main_tags, sub_tags, text_entry, format:Literal['sql
     }
 
 def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
-                                  format:Literal['sqlite', 'milvus']='sqlite'):
+                                  format:Literal['sqlite', 'vdb']='sqlite'):
     def _process_entry(entry):
         date, text = '', ''
         main_tags, sub_tags = [], []
@@ -320,7 +331,7 @@ class SentenceTransformersEmbeddings(Embeddings):
         # Use the model to encode the documents
         embeddings = self.model.encode(documents)
         # Convert embeddings to numpy array
-        return embeddings.cpu().numpy()
+        return embeddings
     
     def embed_query(self, query, task=None, mode='semantic'):
         """
@@ -339,27 +350,66 @@ class SentenceTransformersEmbeddings(Embeddings):
         elif mode:
             embeddings = self.model.encode(query, prompt_name=embeddings_query_prompt(mode))
         # Convert embedding to numpy array
-        return embeddings.cpu().numpy()
+        return embeddings
 
 
-class LangMilvusManagment:
+class LangVdb:
+    _vdb : Literal['qdrant', 'milvus'] = vdb
+    _vdb_client = None
+    
+    
     
     @staticmethod
-    def initialize_milvus_db():
-        client = MilvusClient(milvus_database_path)
+    def initialize_vdb():
+        ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
+        ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
+        ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
+        
+        if LangVdb._vdb == 'milvus':
+            LangVdb._vdb_client = MilvusClient(milvus_database_path)
+            
+        elif LangVdb._vdb == 'qdrant':
+            LangVdb._vdb_client = QdrantClient(path=qdrant_database_path)
+
         
     @staticmethod
-    def initialize_milvus_db_collection(user_id):
-        client = MilvusClient(milvus_database_path)
-        
-        if not client.has_collection(collection_name=user_id):
-            client.create_collection(
+    def initialize_vdb_collection(user_id):        
+        if LangVdb._vdb == 'milvus':
+            LangVdb._init_milvus_collection(user_id)
+
+        elif LangVdb._vdb == 'qdrant':
+            LangVdb._init_qdrant_collection(user_id)
+
+    @staticmethod
+    def _init_milvus_collection(user_id):
+        if not LangVdb._vdb_client.has_collection(collection_name=user_id):
+            LangVdb._vdb_client.create_collection(
                 collection_name=user_id,
                 dimension=vector_dimensions,  # The dimension of vectors that will be stored
             )
 
     @staticmethod
-    def access_lang_milvus_vdb(user_id):
+    def _init_qdrant_collection(user_id):
+        if not LangVdb._vdb_client.collection_exists(collection_name="{user_id}"):
+            LangVdb._vdb_client.create_collection(
+                collection_name=user_id,
+                vectors_config=VectorParams(size=vector_dimensions, distance=Distance.COSINE),
+            )
+
+    @staticmethod
+    def access_vdb(user_id):
+        
+        if LangVdb._vdb == 'milvus':
+            return LangVdb._access_milvus_vdb(user_id)
+            
+        elif LangVdb._vdb == 'qdrant':
+            return LangVdb._access_qdrant_vdb(user_id)
+        
+
+
+        
+    @staticmethod
+    def _access_milvus_vdb(user_id):
         return Milvus(
             SentenceTransformersEmbeddings(),
             connection_args={"uri": milvus_database_path},
@@ -367,8 +417,37 @@ class LangMilvusManagment:
         )
         
     @staticmethod
+    def _access_qdrant_vdb(user_id):
+        if retrieval_mode == 'dense':
+            return QdrantVectorStore(
+                client=LangVdb._vdb_client,
+                collection_name=user_id,
+                embedding=SentenceTransformersEmbeddings(),
+                retrieval_mode = RetrievalMode(retrieval_mode)
+            )
+        
+        elif retrieval_mode == 'sparse':
+            return QdrantVectorStore(
+                client=LangVdb._vdb_client,
+                collection_name=user_id,
+                sparse_embedding = FastEmbedSparse(model_name=sparse_embeddings_model_name),
+                retrieval_mode = getattr(RetrievalMode(), retrieval_mode.upper())
+            )
+            
+        elif retrieval_mode == 'hybrid':
+            return QdrantVectorStore(
+                client=LangVdb._vdb_client,
+                collection_name=user_id,
+                embedding=SentenceTransformersEmbeddings(),
+                sparse_embedding = FastEmbedSparse(model_name=sparse_embeddings_model_name),
+                retrieval_mode = getattr(RetrievalMode(), retrieval_mode.upper())
+            )
+            
+
+    @staticmethod
     def _texts_to_documents(entries:Union[List[dict], dict]):
         if isinstance(entries, List):
+            entries = [entry for entry in entries if entry.get(text_col_name, None)]
             return [
                 Document(
                     page_content=entry_dict[text_col_name], 
@@ -381,7 +460,7 @@ class LangMilvusManagment:
                 ] 
 
         else:
-            return list(
+            return [
                 Document(
                     page_content=entries[text_col_name], 
                     metadata={
@@ -390,18 +469,34 @@ class LangMilvusManagment:
                         sub_tags_col_name: entries[sub_tags_col_name]
                         }
                     )
-            )
+            ] if entries.get(text_col_name, None) else None
 
 
     @staticmethod
-    def add_entry_to_milvus(lang_milvus_vdb, formatted_entries:List):
-        documents_entries = LangMilvusManagment._texts_to_documents(formatted_entries)
-        lang_milvus_vdb.add_documents(documents=documents_entries)
+    def add_entry_to_vdb(vdb, formatted_entries:List):
+        documents_entries = LangVdb._texts_to_documents(formatted_entries)
+        if documents_entries:
+            for doc in documents_entries:
+                print(doc)
+            vdb.add_documents(documents=documents_entries)
         
     @staticmethod
-    def retrieval(query, lang_milvus_vdb, filters:Dict={}, k_outputs:int=k_outputs, search_type:str = base_type_search):
-        # Build search_kwargs
-        search_kwargs = {'k': k_outputs, 'filter': filters}
+    def retrieval(query, lang_vdb, 
+                  rerank:bool=retrieval_rerank_flag, filters:Dict={}, k_outputs:int=k_outputs, search_type:str=base_type_search, 
+                  str_format_results:bool=True):
+        
+        # Build initial search_kwargs
+        search_kwargs = {'k': k_outputs}
+                
+        if filters:
+            # If there is filters value
+            if any([value for key, value in filters.items()]):
+                # Convert filter for qdrant
+                if LangVdb._vdb == 'qdrant':
+                    filters = LangVdb._convert_filters_to_qdrant_filter(filters)
+                # Add filter in search_kwargs
+                search_kwargs['filter'] = filters     
+
         # kwargs specific to "similarity_score_threshold" and "mmr"
         if search_type == "similarity_score_threshold":
             search_kwargs['score_threshold'] = relevance_threshold
@@ -410,18 +505,53 @@ class LangMilvusManagment:
             search_kwargs['lambda_mult'] = mmr_lambda_mult       
         
         # Get retrieval engine
-        retriever = lang_milvus_vdb.as_retriever(
+        retriever = lang_vdb.as_retriever(
             search_type=search_type,
             search_kwargs=search_kwargs
             )
-        # Retrieve docs
-        retrieved_docs = retriever.invoke(query)
-        return [
-            {
-                text_col_name: doc.page_content, 
-                date_col_name: doc.metadata[date_col_name],
-                main_tags_col_name: doc.metadata[main_tags_col_name],
-                sub_tags_col_name: doc.metadata[sub_tags_col_name]
-                }
-            for doc in retrieved_docs
-            ]
+        
+        print('\n\n\n\n\n\mSEARCH PARAMS', search_kwargs)
+        
+        if not rerank:
+            retrieved_docs = retriever.invoke(query)
+        else:
+            # Perform rerank with FlashRank
+            compressor = FlashrankRerank()
+            compression_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor, base_retriever=retriever
+            )       
+            retrieved_docs = compression_retriever.invoke(query)
+        
+        print('DOCS:', LangVdb._retrieval_results_str_format(retrieved_docs))
+        
+        
+        return LangVdb._retrieval_results_str_format(retrieved_docs) if str_format_results else retrieved_docs
+
+    @staticmethod
+    def _convert_filters_to_qdrant_filter(filters: Dict) -> Union[Filter, None]:
+        if not filters:
+            return None
+
+        must_conditions = []
+        for filter_name, filter_value in filters.items():
+            if isinstance(filter_value, list):
+                for value in filter_value:
+                    must_conditions.append(FieldCondition(key=filter_name, match=MatchValue(value=value)))
+            else:
+                must_conditions.append(FieldCondition(key=filter_name, match=MatchValue(value=filter_value)))
+        
+        return Filter(must=must_conditions)
+    
+    
+    
+    @staticmethod
+    def _retrieval_results_str_format(retrieved_docs):
+ 
+        return f"\n{'-'*50}\n".join(
+                    [
+                        f"Document {i+1}:\n{doc.page_content}\n" +\
+                        f"Metadata:\n" + "\n".join([f"{key}: {str(value)}" for key, value in doc.metadata.items()])
+                        for i, doc in enumerate(retrieved_docs)
+                    ]
+                )
+    
