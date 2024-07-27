@@ -19,7 +19,7 @@ from langchain.embeddings.base import Embeddings
 # Vector databases
 from pymilvus import MilvusClient
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue
+from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, MatchAny, Match
 # Langchain integreation
 from langchain_milvus.vectorstores import Milvus
 from langchain_qdrant import QdrantVectorStore
@@ -266,6 +266,12 @@ def format_entry(text_date, main_tags, sub_tags, text_entry, format:Literal['sql
     if format == 'sqlite':
         main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
         sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
+    print('FORMAT ENTRY: ', {
+        date_col_name: text_date,
+        main_tags_col_name: main_tags,
+        sub_tags_col_name: sub_tags,
+        text_col_name: text_entry,
+    }, '\n')
     return {
         date_col_name: text_date,
         main_tags_col_name: main_tags,
@@ -290,18 +296,22 @@ def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separato
             # Remove main_tags delimiter, white spaces and split tags by their file_tags_separator
             elif main_tags_delimiter in lines[i]:
                 main_tags = lines[i].replace(main_tags_delimiter, '').split(file_tags_separator)
-                # Format tags to sqlite (string) or leave it as list
-                main_tags = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
             # Remove sub_tags delimiter, white spaces and split tags by their file_tags_separator  
             elif sub_tags_delimiter in lines[i]:
                 sub_tags = lines[i].replace(sub_tags_delimiter, '').split(file_tags_separator)
-                # Format tags to sqlite (string) or leave it as list
-                sub_tags = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else main_tags
             # Remove text_delimiter and grab the text
             elif text_delimiter in lines[i]:
                 text = ' '.join(lines[i:]).replace(text_delimiter, '')
 
-        return format_entry(date, main_tags, sub_tags, text)
+        # Format list as str (sqlite cannot save list)
+        if format == 'sqlite':
+             # Format tags to sqlite (string) 
+            main_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
+            sub_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else sub_tags
+            return format_entry(date, main_tags_str, sub_tags_str, text, format=format)
+        # Retain lsit format otherwise
+        else:
+            return format_entry(date, main_tags, sub_tags, text, format=format)
 
 
     # Open and read the file
@@ -477,7 +487,8 @@ class LangVdb:
         documents_entries = LangVdb._texts_to_documents(formatted_entries)
         if documents_entries:
             for doc in documents_entries:
-                print(doc)
+               # print(doc)
+               pass
             vdb.add_documents(documents=documents_entries)
         
     @staticmethod
@@ -534,12 +545,36 @@ class LangVdb:
 
         must_conditions = []
         for filter_name, filter_value in filters.items():
+        #    # If filter is list (main_tags, sub_tags)
+        #    if filter_name in [main_tags_col_name, sub_tags_col_name]:
+        #        if isinstance(filter_value, list):
+        #            for value in filter_value:
+        #                must_conditions.append(FieldCondition(key=f"{filter_name}[]", match=MatchValue(value=value)))
+        #        else:
+        #            must_conditions.append(FieldCondition(key=f"{filter_name}[]", match=MatchValue(value=filter_value)))
             if isinstance(filter_value, list):
                 for value in filter_value:
-                    must_conditions.append(FieldCondition(key=filter_name, match=MatchValue(value=value)))
-            else:
-                must_conditions.append(FieldCondition(key=filter_name, match=MatchValue(value=filter_value)))
-        
+                    print('OKOK', LangVdb._vdb_client.scroll(
+                            collection_name="dev",
+                            scroll_filter=Filter(must=[FieldCondition(key=f"metadata.{main_tags_col_name}[]", match=MatchValue(value=value))])), '\n')
+                    
+        # Define the collection name
+        collection_name = "dev"
+
+        # Define a broad query vector (e.g., a zero vector)
+        # The dimensionality of this vector should match the dimensionality of the vectors in your collection
+        query_vector = [0.0] * vector_dimensions  # Adjust the size based on your vector dimensionality
+
+        # Perform the search with a very high top value to retrieve all points
+        results = LangVdb._vdb_client.search(
+            collection_name=collection_name,
+            query_vector=query_vector,
+        )
+
+        # Print all entries
+        for result in results:
+            print(result)
+            
         return Filter(must=must_conditions)
     
     
