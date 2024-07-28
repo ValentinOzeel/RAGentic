@@ -37,7 +37,7 @@ from constants import (credentials_yaml_path,
                        device,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank_flag,
                        embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
-                       base_type_search, k_outputs, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
+                       base_type_search, filter_strictness_choices, k_outputs, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
 )
 
 
@@ -493,7 +493,7 @@ class LangVdb:
         
     @staticmethod
     def retrieval(query, lang_vdb, 
-                  rerank:bool=retrieval_rerank_flag, filters:Dict={}, k_outputs:int=k_outputs, search_type:str=base_type_search, 
+                  rerank:bool=retrieval_rerank_flag, filters:Dict={}, filter_strictness=filter_strictness_choices[0], k_outputs:int=k_outputs, search_type:str=base_type_search, 
                   str_format_results:bool=True):
         
         # Build initial search_kwargs
@@ -504,7 +504,7 @@ class LangVdb:
             if any([value for key, value in filters.items()]):
                 # Convert filter for qdrant
                 if LangVdb._vdb == 'qdrant':
-                    filters = LangVdb._convert_filters_to_qdrant_filter(filters)
+                    filters = LangVdb._convert_filters_to_qdrant_filter(filters, filter_strictness)
                 # Add filter in search_kwargs
                 search_kwargs['filter'] = filters     
 
@@ -539,41 +539,69 @@ class LangVdb:
         return LangVdb._retrieval_results_str_format(retrieved_docs) if str_format_results else retrieved_docs
 
     @staticmethod
-    def _convert_filters_to_qdrant_filter(filters: Dict) -> Union[Filter, None]:
+    def _convert_filters_to_qdrant_filter(filters: Dict, filter_strictness:str) -> Union[Filter, None]:
+        
+        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str) -> 'FieldCondition':
+            if value_or_any == 'match_value':
+                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchValue(value=filter_value))
+            elif value_or_any == 'match_any':
+                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchAny(any=filter_value))
+        
         if not filters:
             return None
-
+        
+        # For now we only add filter for main_tags and sub_tags (which are lists)
+        available_filters = [main_tags_col_name, sub_tags_col_name]
         must_conditions = []
+        
         for filter_name, filter_value in filters.items():
-        #    # If filter is list (main_tags, sub_tags)
-        #    if filter_name in [main_tags_col_name, sub_tags_col_name]:
-        #        if isinstance(filter_value, list):
-        #            for value in filter_value:
-        #                must_conditions.append(FieldCondition(key=f"{filter_name}[]", match=MatchValue(value=value)))
-        #        else:
-        #            must_conditions.append(FieldCondition(key=f"{filter_name}[]", match=MatchValue(value=filter_value)))
-            if isinstance(filter_value, list):
-                for value in filter_value:
-                    print('OKOK', LangVdb._vdb_client.scroll(
-                            collection_name="dev",
-                            scroll_filter=Filter(must=[FieldCondition(key=f"metadata.{main_tags_col_name}[]", match=MatchValue(value=value))])), '\n')
+            if filter_name in available_filters and filter_value:
+                # If strictness = any tags
+                if filter_strictness == filter_strictness_choices[0]:
                     
+                    if isinstance(filter_value, list):
+                        # Must match at least one of the values in filter
+                        must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
+                    # For other typer of filters such as date
+                    #else:
+                    #    must_conditions.append(_create_field_condition(filter_name, filter_value))
+
+                # Elif all tags must be present
+                elif filter_strictness == filter_strictness_choices[1]:
+                    if isinstance(filter_value, list):
+                        # iterate over each tag and check if all of these are present in metadata
+                        for value in filter_value:
+                            must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
+
+        # Check filter for debug
+        for values in LangVdb._vdb_client.scroll(
+                collection_name="dev",
+                scroll_filter=Filter(must=must_conditions)):
+            print('OKOK', must_conditions, '\n')  
+            if values: 
+                for val in values:
+                    print(val)
+
+
+
+        ### PRINT ALL ENTRIES IN DB
+        
         # Define the collection name
         collection_name = "dev"
-
         # Define a broad query vector (e.g., a zero vector)
         # The dimensionality of this vector should match the dimensionality of the vectors in your collection
         query_vector = [0.0] * vector_dimensions  # Adjust the size based on your vector dimensionality
-
         # Perform the search with a very high top value to retrieve all points
         results = LangVdb._vdb_client.search(
             collection_name=collection_name,
             query_vector=query_vector,
+            
         )
-
         # Print all entries
-        for result in results:
-            print(result)
+        for i, result in enumerate(results):
+            print(i, result, '\n')
+            
+            
             
         return Filter(must=must_conditions)
     

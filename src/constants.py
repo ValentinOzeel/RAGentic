@@ -48,10 +48,10 @@ lang_user_vdb = None
 
 entry_delimiter = '----'
 file_tags_separator = '//'
-date_delimiter = 'DATE:'
-main_tags_delimiter = 'MAIN_TAGS:'
-sub_tags_delimiter = 'SUB_TAGS:'
-text_delimiter = 'TEXT:'
+date_delimiter = 'DATE: '
+main_tags_delimiter = 'MAIN_TAGS: '
+sub_tags_delimiter = 'SUB_TAGS: '
+text_delimiter = 'TEXT: '
 text_file_to_load = None
 
 ###                                ###               
