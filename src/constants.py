@@ -38,7 +38,10 @@ filter_sub_tags = []
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
-retrieval_search_type = ''
+retrieval_search_type = retrieval_search_type_possibilities[0]
+retrieval_filter_strictness_choices = ['any tags', 'all tags']
+retrieval_filter_strictness = retrieval_filter_strictness_choices[0]
+retrieval_rerank_flag = False
 k_outputs_retrieval = 1
 retrieval_main_tags = []
 retrieval_sub_tags = []
@@ -175,13 +178,10 @@ def embeddings_query_prompt(mode:str):
     else:
         return stella_en_embeddings_query_prompt_query
     
-sparse_embeddings_model_name = "Qdrant/BM25"
+sparse_embeddings_model_name = "Qdrant/bm42-all-minilm-l6-v2-attentions"
 vdb = 'qdrant'
 retrieval_mode = 'dense' # 'dense', 'sparse', 'hybrid'
-retrieval_rerank_flag = True
 
-base_type_search = "similarity" # can be “similarity”, “mmr”, or “similarity_score_threshold”
-k_outputs = 5
 relevance_threshold = 0.5
 mmr_fetch_k = 50 # documents for the MMR algorithm to consider
 mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diversity and 0 for maximum.

@@ -19,7 +19,7 @@ from constants import (
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
     user_table, user_main_tags, user_sub_tags, filter_dates, filter_strictness_choices, filter_strictness, filter_main_tags, filter_sub_tags,
     entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load,
-    lang_user_vdb, retrieval_query, k_outputs_retrieval, retrieval_search_type_possibilities, retrieval_search_type, retrieval_main_tags, retrieval_sub_tags, retrieval_results
+    lang_user_vdb, retrieval_query, k_outputs_retrieval, retrieval_rerank_flag, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results
 )
 
 
@@ -61,7 +61,7 @@ with tgb.Page() as log_in:
     with tgb.layout("1 1 1"):
         tgb.text(' ')
         with tgb.part():
-            tgb.login("Please log in! (reaload page to retry)", on_action=on_login)
+            tgb.login("Please log in! (reload page to retry)", on_action=on_login)
 
 
 
@@ -159,11 +159,21 @@ with tgb.Page() as retrieve_data:
     tgb.text("## Retrieve data with query:", mode="md")
     tgb.text('\n \n ')
     
-    with tgb.layout("1 1 1 1"):
-        tgb.selector("{retrieval_search_type}", lov=retrieval_search_type_possibilities, dropdown=True)
+    with tgb.layout("1 1 1 1 1 1"):
+        tgb.selector(value="{retrieval_search_type}", 
+                     lov=retrieval_search_type_possibilities, 
+                     multiple=False, dropdown=True, label='Retrieval search type')
         
-        tgb.slider("{k_outputs_retrieval}", min="1", max="15")
+        tgb.selector(value="{retrieval_filter_strictness}", 
+                     lov="{retrieval_filter_strictness_choices}", 
+                     multiple=False, dropdown=True, label='Retrieval filter strictness')
         
+        tgb.selector(value="{retrieval_rerank_flag}", 
+                     lov=[(True, 'Use rerank'), (False, 'No rerank')], 
+                     multiple=False, dropdown=True, label='Rerank usage')
+
+        tgb.slider("{k_outputs_retrieval}", min=1, max=10, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(10)})
+
         tgb.selector(value="{retrieval_main_tags}", 
                      lov="{user_main_tags}", 
                      multiple=True, dropdown=True, label='Retrieval main tag filter')
@@ -172,8 +182,12 @@ with tgb.Page() as retrieve_data:
                      lov="{user_sub_tags}", 
                      multiple=True, dropdown=True, label='Retrieval sub tag filter',)
         
-    with tgb.layout("1 1"):
-        tgb.input("{retrieval_query}", label='Enter your query*')
-        tgb.button("Send query", on_action=on_retrieval_query)
+    with tgb.layout("1 1 1"):
         
-    tgb.text('{retrieval_results}')
+        tgb.text('     ')
+        
+        with tgb.part():
+            tgb.input("{retrieval_query}", label='Enter your query*')
+            tgb.button("Send query", on_action=on_retrieval_query)
+        
+    tgb.text('{retrieval_results}', mode='pre')

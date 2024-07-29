@@ -1,7 +1,7 @@
 import taipy.gui.builder as tgb
 from taipy.gui import navigate, notify
 import pandas as pd
-from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, base_type_search, k_outputs
+from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
 
 from page_ids import page_ids
 from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangVdb as lvdb
@@ -17,7 +17,18 @@ def on_sign_in(state, id, login_args):
     # State corresponding values
     acc_creation_values = [state.user_email, state.user_password, state.verify_password]
 
-
+    if all(element == 'dev' for element in acc_creation_values):
+        # Add credentials except if user already exists
+        status = sl.add_user_credentials(state.user_email, state.user_password)
+        if not status:
+            notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
+        else:
+            # Create a vector database collection for the new user
+            lvdb.initialize_vdb_collection(state.user_email)
+            notify(state, 'success', 'Account successfully created!', duration=notify_duration)
+            navigate(state, page_ids["log_in"])
+        
+        
     # Notify error if all fields are not filled
     if not all(element for element in acc_creation_values):
         notify(state, 'error', 'All fields are required to be filled in!', duration=notify_duration)
@@ -205,14 +216,15 @@ def on_reset_filters(state, id, payload):
     
     
 def on_retrieval_query(state, id, payload):
-    print('\n\n\n\n\n\nOUTPUTS', state.k_outputs_retrieval, k_outputs)
+    print('OKOKOKOKO',  state.retrieval_rerank_flag)
     state.retrieval_results = lvdb.retrieval(
         query= state.retrieval_query,
         lang_vdb= state.lang_user_vdb,
-        rerank= False,
+        rerank= state.retrieval_rerank_flag,
         filters= {main_tags_col_name:state.retrieval_main_tags, sub_tags_col_name:state.retrieval_sub_tags},
-        k_outputs= state.k_outputs_retrieval if state.k_outputs_retrieval else k_outputs,
-        search_type= state.retrieval_search_type if state.retrieval_search_type else base_type_search,
+        k_outputs= state.k_outputs_retrieval,
+        search_type= state.retrieval_search_type if state.retrieval_search_type else retrieval_search_type,
+        filter_strictness= state.retrieval_filter_strictness,
         str_format_results=True
         )
     

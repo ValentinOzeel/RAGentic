@@ -9,3 +9,4 @@ langchain-qdrant
 fastembed
 qdrant-client
 xformers
+flashrank

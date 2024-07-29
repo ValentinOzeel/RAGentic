@@ -37,7 +37,7 @@ from constants import (credentials_yaml_path,
                        device,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank_flag,
                        embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
-                       base_type_search, filter_strictness_choices, k_outputs, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
+                       retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
 )
 
 
@@ -428,30 +428,13 @@ class LangVdb:
         
     @staticmethod
     def _access_qdrant_vdb(user_id):
-        if retrieval_mode == 'dense':
-            return QdrantVectorStore(
-                client=LangVdb._vdb_client,
-                collection_name=user_id,
-                embedding=SentenceTransformersEmbeddings(),
-                retrieval_mode = RetrievalMode(retrieval_mode)
-            )
-        
-        elif retrieval_mode == 'sparse':
-            return QdrantVectorStore(
-                client=LangVdb._vdb_client,
-                collection_name=user_id,
-                sparse_embedding = FastEmbedSparse(model_name=sparse_embeddings_model_name),
-                retrieval_mode = getattr(RetrievalMode(), retrieval_mode.upper())
-            )
-            
-        elif retrieval_mode == 'hybrid':
-            return QdrantVectorStore(
-                client=LangVdb._vdb_client,
-                collection_name=user_id,
-                embedding=SentenceTransformersEmbeddings(),
-                sparse_embedding = FastEmbedSparse(model_name=sparse_embeddings_model_name),
-                retrieval_mode = getattr(RetrievalMode(), retrieval_mode.upper())
-            )
+        return QdrantVectorStore(
+            client=LangVdb._vdb_client,
+            collection_name=user_id,
+            embedding=SentenceTransformersEmbeddings() if retrieval_mode in ['dense', 'hybrid'] else None,
+            sparse_embedding = FastEmbedSparse(model_name=sparse_embeddings_model_name) if retrieval_mode in ['sparse', 'hydrid'] else None,
+            retrieval_mode = getattr(RetrievalMode, retrieval_mode.upper())
+        )
             
 
     @staticmethod
@@ -493,7 +476,7 @@ class LangVdb:
         
     @staticmethod
     def retrieval(query, lang_vdb, 
-                  rerank:bool=retrieval_rerank_flag, filters:Dict={}, filter_strictness=filter_strictness_choices[0], k_outputs:int=k_outputs, search_type:str=base_type_search, 
+                  rerank:bool=retrieval_rerank_flag, filters:Dict={}, filter_strictness=filter_strictness_choices[0], k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, 
                   str_format_results:bool=True):
         
         # Build initial search_kwargs
@@ -554,6 +537,7 @@ class LangVdb:
         available_filters = [main_tags_col_name, sub_tags_col_name]
         must_conditions = []
         
+        
         for filter_name, filter_value in filters.items():
             if filter_name in available_filters and filter_value:
                 # If strictness = any tags
@@ -572,36 +556,6 @@ class LangVdb:
                         # iterate over each tag and check if all of these are present in metadata
                         for value in filter_value:
                             must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
-
-        # Check filter for debug
-        for values in LangVdb._vdb_client.scroll(
-                collection_name="dev",
-                scroll_filter=Filter(must=must_conditions)):
-            print('OKOK', must_conditions, '\n')  
-            if values: 
-                for val in values:
-                    print(val)
-
-
-
-        ### PRINT ALL ENTRIES IN DB
-        
-        # Define the collection name
-        collection_name = "dev"
-        # Define a broad query vector (e.g., a zero vector)
-        # The dimensionality of this vector should match the dimensionality of the vectors in your collection
-        query_vector = [0.0] * vector_dimensions  # Adjust the size based on your vector dimensionality
-        # Perform the search with a very high top value to retrieve all points
-        results = LangVdb._vdb_client.search(
-            collection_name=collection_name,
-            query_vector=query_vector,
-            
-        )
-        # Print all entries
-        for i, result in enumerate(results):
-            print(i, result, '\n')
-            
-            
             
         return Filter(must=must_conditions)
     
