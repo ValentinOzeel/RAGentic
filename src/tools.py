@@ -18,8 +18,8 @@ from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
 # Vector databases
 from pymilvus import MilvusClient
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, MatchAny, Match
+from qdrant_client import QdrantClient, models
+from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, MatchAny
 # Langchain integreation
 from langchain_milvus.vectorstores import Milvus
 from langchain_qdrant import QdrantVectorStore
@@ -365,76 +365,72 @@ class SentenceTransformersEmbeddings(Embeddings):
 
 class LangVdb:
     _vdb : Literal['qdrant', 'milvus'] = vdb
-    _vdb_client = None
     
-    
-    
-    @staticmethod
-    def initialize_vdb():
-        ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
-        ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
-        ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
-        
-        if LangVdb._vdb == 'milvus':
-            LangVdb._vdb_client = MilvusClient(milvus_database_path)
-            
-        elif LangVdb._vdb == 'qdrant':
-            LangVdb._vdb_client = QdrantClient(path=qdrant_database_path)
 
-        
+    #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
+    #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
+    #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
+
+
     @staticmethod
-    def initialize_vdb_collection(user_id):        
-        if LangVdb._vdb == 'milvus':
+    def _initialize_vdb_collection(user_id):        
+        if LangVdb._vdb == 'qdrant':
             LangVdb._init_milvus_collection(user_id)
 
-        elif LangVdb._vdb == 'qdrant':
-            LangVdb._init_qdrant_collection(user_id)
+    #    elif LangVdb._vdb == 'milvus':
+    #        LangVdb._init_qdrant_collection(user_id)
 
-    @staticmethod
-    def _init_milvus_collection(user_id):
-        if not LangVdb._vdb_client.has_collection(collection_name=user_id):
-            LangVdb._vdb_client.create_collection(
-                collection_name=user_id,
-                dimension=vector_dimensions,  # The dimension of vectors that will be stored
-            )
+    #@staticmethod
+    #def _init_milvus_collection(user_id):
+    #    if not MilvusClient(milvus_database_path).has_collection(collection_name=user_id):
+    #        MilvusClient(milvus_database_path).create_collection(
+    #            collection_name=user_id,
+    #            dimension=vector_dimensions,  # The dimension of vectors that will be stored
+    #        )
 
     @staticmethod
     def _init_qdrant_collection(user_id):
-        if not LangVdb._vdb_client.collection_exists(collection_name="{user_id}"):
-            LangVdb._vdb_client.create_collection(
+        if not QdrantClient(path=qdrant_database_path).collection_exists(collection_name=user_id):
+            QdrantClient(path=qdrant_database_path).create_collection(
                 collection_name=user_id,
-                vectors_config=VectorParams(size=vector_dimensions, distance=Distance.COSINE),
-            )
-
+                vectors_config={"dense": VectorParams(size=vector_dimensions, distance=Distance.COSINE)},
+                sparse_vectors_config={"sparse": models.SparseVectorParams()}
+            )  
+            
+            
     @staticmethod
     def access_vdb(user_id):
-        
-        if LangVdb._vdb == 'milvus':
+        if LangVdb._vdb == 'qdrant':
             return LangVdb._access_milvus_vdb(user_id)
             
-        elif LangVdb._vdb == 'qdrant':
-            return LangVdb._access_qdrant_vdb(user_id)
+    #    elif LangVdb._vdb == 'milvus':
+    #        return LangVdb._access_qdrant_vdb(user_id)
         
-
-
-        
-    @staticmethod
-    def _access_milvus_vdb(user_id):
-        return Milvus(
-            SentenceTransformersEmbeddings(),
-            connection_args={"uri": milvus_database_path},
-            collection_name=user_id,
-        )
+    #@staticmethod
+    #def _access_milvus_vdb(user_id):
+    #    return Milvus(
+    #        SentenceTransformersEmbeddings(),
+    #        connection_args={"uri": milvus_database_path},
+    #        collection_name=user_id,
+    #    )
         
     @staticmethod
     def _access_qdrant_vdb(user_id):
-        return QdrantVectorStore(
-            client=LangVdb._vdb_client,
-            collection_name=user_id,
-            embedding=SentenceTransformersEmbeddings() if retrieval_mode in ['dense', 'hybrid'] else None,
-            sparse_embedding = FastEmbedSparse(model_name=sparse_embeddings_model_name) if retrieval_mode in ['sparse', 'hydrid'] else None,
-            retrieval_mode = getattr(RetrievalMode, retrieval_mode.upper())
-        )
+        vector_store_params = {
+            'path': qdrant_database_path,
+            'collection_name':user_id,
+            'embedding': SentenceTransformersEmbeddings() if retrieval_mode in ['dense', 'hybrid'] else None,
+            'vector_name': 'dense', 
+            'sparse_embedding': FastEmbedSparse(model_name=sparse_embeddings_model_name) if retrieval_mode in ['sparse', 'hybrid'] else None,
+            'sparse_vector_name': 'sparse',
+            'retrieval_mode': getattr(RetrievalMode, retrieval_mode.upper())
+        }
+        # Create collection if doesnt exist yet
+        if not QdrantClient(path=qdrant_database_path).collection_exists(collection_name=user_id):
+            LangVdb._initialize_vdb_collection(user_id)
+        return QdrantVectorStore.from_existing_collection(**vector_store_params)
+
+
             
 
     @staticmethod

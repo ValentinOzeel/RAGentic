@@ -24,41 +24,41 @@ def on_sign_in(state, id, login_args):
             notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
         else:
             # Create a vector database collection for the new user
-            lvdb.initialize_vdb_collection(state.user_email)
+    #        lvdb.initialize_vdb_collection(state.user_email)
             notify(state, 'success', 'Account successfully created!', duration=notify_duration)
             navigate(state, page_ids["log_in"])
         
-        
-    # Notify error if all fields are not filled
-    if not all(element for element in acc_creation_values):
-        notify(state, 'error', 'All fields are required to be filled in!', duration=notify_duration)
-    # If they are, check the email adress' validity
     else:
-        e_check = sl.email_check(state.user_email)
-        
-        if not e_check:
-            notify(state, 'error', 'Incorrect email address!', duration=notify_duration)
-            
-        # Notify error if password and verify_password correspond
-        elif state.user_password != state.verify_password:
-            notify(state, 'error', "Password and password verification entries don't match!", duration=notify_duration)
-            
-        ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
-        ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
-        ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
-        
-        # If all is good until there
+        # Notify error if all fields are not filled
+        if not all(element for element in acc_creation_values):
+            notify(state, 'error', 'All fields are required to be filled in!', duration=notify_duration)
+        # If they are, check the email adress' validity
         else:
-            # Add credentials except if user already exists
-            status = sl.add_user_credentials(state.user_email, state.user_password)
-            if not status:
-                notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
+            e_check = sl.email_check(state.user_email)
+
+            if not e_check:
+                notify(state, 'error', 'Incorrect email address!', duration=notify_duration)
+
+            # Notify error if password and verify_password correspond
+            elif state.user_password != state.verify_password:
+                notify(state, 'error', "Password and password verification entries don't match!", duration=notify_duration)
+
+            ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
+            ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
+            ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
+
+            # If all is good until there
             else:
-                # Create a vector database collection for the new user
-                lvdb.initialize_vdb_collection(state.user_email)
-                notify(state, 'success', 'Account successfully created!', duration=notify_duration)
-                navigate(state, page_ids["log_in"])
-                
+                # Add credentials except if user already exists
+                status = sl.add_user_credentials(state.user_email, state.user_password)
+                if not status:
+                    notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
+                else:
+                    # Create a vector database collection for the new user
+      #              lvdb.initialize_vdb_collection(state.user_email)
+                    notify(state, 'success', 'Account successfully created!', duration=notify_duration)
+                    navigate(state, page_ids["log_in"])
+
                 
 def on_login(state, id, login_args):
     user_email, user_password = login_args["args"][:2]

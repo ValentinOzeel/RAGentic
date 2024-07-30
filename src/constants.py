@@ -180,7 +180,7 @@ def embeddings_query_prompt(mode:str):
     
 sparse_embeddings_model_name = "Qdrant/bm42-all-minilm-l6-v2-attentions"
 vdb = 'qdrant'
-retrieval_mode = 'dense' # 'dense', 'sparse', 'hybrid'
+retrieval_mode = 'hybrid' # 'dense', 'sparse', 'hybrid'
 
 relevance_threshold = 0.5
 mmr_fetch_k = 50 # documents for the MMR algorithm to consider
