@@ -1,3 +1,5 @@
+import random
+
 import taipy.gui.builder as tgb
 from taipy.gui import Icon
 

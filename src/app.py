@@ -1,6 +1,6 @@
 from taipy.gui import Gui
 
-from tools import create_cred_yaml_file, SQLiteManagment, LangVdb
+from tools import YamlManagment, SQLiteManagment, LangVdb
 from pages import (
     welcome,
     init,
@@ -17,7 +17,7 @@ from page_ids import page_ids
 
 
 if __name__ == "__main__":
-    create_cred_yaml_file()
+    YamlManagment.create_cred_yaml_file()
 
     # Initialize the SQlite database (creates the file and table if not exists)
     SQLiteManagment.initialize_db()

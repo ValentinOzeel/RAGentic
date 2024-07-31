@@ -23,6 +23,8 @@ text_entry = ''
 
 user_table = pd.DataFrame()
 retrieval_data = pd.DataFrame()
+entry_id_col_name = 'entry_id'
+chunked_entry_id_col_name = 'chunked_entry_id'
 date_col_name = 'text_date'
 main_tags_col_name = 'main_tags'
 sub_tags_col_name = 'sub_tags'
@@ -35,6 +37,9 @@ filter_strictness = filter_strictness_choices[0]
 
 filter_main_tags = []
 filter_sub_tags = []
+
+chunk_size = 2000
+chunk_overlap = 500
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
@@ -185,6 +190,9 @@ retrieval_mode = 'hybrid' # 'dense', 'sparse', 'hybrid'
 relevance_threshold = 0.5
 mmr_fetch_k = 50 # documents for the MMR algorithm to consider
 mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diversity and 0 for maximum.
+
+# For langchain indexing
+sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

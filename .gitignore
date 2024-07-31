@@ -2,6 +2,7 @@ app_credentials.yaml
 user_files
 data_sqlite.db
 data_qdrant.db
+record_manager_cache.sql
 .env
 __pycache__
 

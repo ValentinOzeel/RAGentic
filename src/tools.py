@@ -16,6 +16,8 @@ import easyocr
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.indexes import SQLRecordManager, index
 # Vector databases
 from pymilvus import MilvusClient
 from qdrant_client import QdrantClient, models
@@ -32,21 +34,93 @@ from langchain.retrievers.document_compressors import FlashrankRerank
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
-                       date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
+                       entry_id_col_name, chunked_entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
+                       chunk_size, chunk_overlap,
                        device,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank_flag,
-                       embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
+                       sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
                        retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
 )
-
-
-def create_cred_yaml_file():
-    #Initialize the YAML file with an empty dictionary.
-    if not os.path.isfile(credentials_yaml_path):
-        with open(credentials_yaml_path, 'w') as file:
-            yaml.dump({'user_creds': {}}, file)
             
+            
+
+class YamlManagment():
+
+    @staticmethod
+    def create_cred_yaml_file():
+        #Initialize the YAML file with an empty dictionary.
+        if not os.path.isfile(credentials_yaml_path):
+            with open(credentials_yaml_path, 'w') as file:
+                yaml.dump({'user_creds': {}}, file)
+            
+    @staticmethod
+    def add_user_credentials(email, password):
+        '''
+        Add user credentials upon account creation
+        ''' 
+        # Load yaml creadentials
+        with open(credentials_yaml_path, 'r') as file:
+            data = yaml.safe_load(file)  
+        # Check if provided email already exists
+        if email in data['user_creds']:
+            return False
+        # If it does not, then add the credentials
+        else:
+            data['user_creds'][email] = password 
+            # Add credentials in user_creds Yaml Dict 
+            with open(credentials_yaml_path, 'w') as file:
+                yaml.dump(data, file)
+            return True
+        
+    @staticmethod
+    def check_user_credentials(email, password):
+        with open(credentials_yaml_path, 'r') as file:
+            data = yaml.safe_load(file)  
+            
+        # Check if provided email exists
+        if not data['user_creds'].get(email, None):
+            return False
+        # Check if provided password match with the password associated to email
+        if data['user_creds'][email] != password:
+            return False
+        # Return True if user credentials are valid
+        return True
+
+    @staticmethod
+    def _get_user_n_entry_id(user_id):
+        '''
+        Add user credentials upon account creation
+        ''' 
+        # Load yaml credentials
+        with open(credentials_yaml_path, 'r') as file:
+            data = yaml.safe_load(file)  
+        # Create user_n_entry_id dict if doesnt exist
+        if not data.get('user_n_entry_id', None):
+            data['user_n_entry_id'] = {}
+        # Init user_n_entry_id for user_if as 0 if it doesnt exists already
+        if not data['user_n_entry_id'].get(user_id, None):
+            data['user_n_entry_id'][user_id] = 0
+        # Persist modifs in yaml
+        with open(credentials_yaml_path, 'w') as file:
+            yaml.dump(data, file)
+        # Return value
+        return data['user_n_entry_id'][user_id]
+
+    @staticmethod
+    def _increment_user_n_entry_id(user_id, n):
+        # Load yaml credentials
+        with open(credentials_yaml_path, 'r') as file:
+            data = yaml.safe_load(file)  
+        # increment user' entries number
+        data['user_n_entry_id'][user_id] = data['user_n_entry_id'][user_id] + n
+        # Persist data in yaml
+        with open(credentials_yaml_path, 'w') as file:
+            yaml.dump(data, file)
+
+
+
+
                 
 class SignLog():
     ###                 ###               
@@ -83,44 +157,6 @@ class SignLog():
         #
         #send_email(subject, body, sender, recipients, password)
         pass
-    
-    @staticmethod
-    def add_user_credentials(email, password):
-        '''
-        Add user credentials upon account creation
-        ''' 
-        # Load yaml creadentials
-        with open(credentials_yaml_path, 'r') as file:
-            data = yaml.safe_load(file)  
-        # Check if provided email already exists
-        if email in data['user_creds']:
-            return False
-        # If it does not, then add the credentials
-        else:
-            data['user_creds'][email] = password 
-            # Add credentials in user_creds Yaml Dict 
-            with open(credentials_yaml_path, 'w') as file:
-                yaml.dump(data, file)
-            return True
-        
-    ###                 ###               
-    ### Log in methods  ###
-    ###                 ###
-    @staticmethod
-    def check_user_credentials(email, password):
-        with open(credentials_yaml_path, 'r') as file:
-            data = yaml.safe_load(file)  
-            
-        # Check if provided email exists
-        if not data['user_creds'].get(email, None):
-            return False
-        # Check if provided password match with the password associated to email
-        if data['user_creds'][email] != password:
-            return False
-        # Return True if user credentials are valid
-        return True
-
-
 
 
 class SQLiteManagment:
@@ -151,6 +187,7 @@ class SQLiteManagment:
                 CREATE TABLE IF NOT EXISTS entries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT NOT NULL,
+                    {entry_id_col_name} TEXT NOT NULL,
                     {date_col_name} TEXT,
                     {main_tags_col_name} TEXT,
                     {sub_tags_col_name} TEXT,
@@ -189,20 +226,22 @@ class SQLiteManagment:
                         # Validate and prepare the values for insertion
                         values = (
                             user_id,
+                            single_entry.get(entry_id_col_name, None),
                             single_entry.get(date_col_name, None),
                             single_entry.get(main_tags_col_name, None),
                             single_entry.get(sub_tags_col_name, None),
                             single_entry.get(text_col_name, None)
                         )
                         cursor.execute(f'''
-                            INSERT INTO entries (user_id, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name})
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name})
+                            VALUES (?, ?, ?, ?, ?, ?)
                         ''', values)
                         
                     elif multiple_entries:
                         entries_to_add = [
                             (
                                 user_id,
+                                entry.get(entry_id_col_name, None),
                                 entry.get(date_col_name, None),
                                 entry.get(main_tags_col_name, None),
                                 entry.get(sub_tags_col_name, None),
@@ -211,8 +250,8 @@ class SQLiteManagment:
                             for entry in multiple_entries if not ignore_if_empty(entry)
                         ]
                         cursor.executemany(f'''
-                            INSERT INTO entries (user_id, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name})
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name})
+                            VALUES (?, ?, ?, ?, ?, ?)
                         ''', entries_to_add)
                     conn.commit()
                 break  # Exit the retry loop if successful
@@ -231,7 +270,7 @@ class SQLiteManagment:
         try:
             with SQLiteManagment.get_db_connection() as conn:
                 query = f'''
-                    SELECT id as text_id, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name} 
+                    SELECT id as text_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name} 
                     FROM entries 
                     WHERE user_id = ? 
                     ORDER BY id
@@ -262,24 +301,25 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
 
 
-def format_entry(text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
+def format_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
     if format == 'sqlite':
         main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
         sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
-    print('FORMAT ENTRY: ', {
-        date_col_name: text_date,
-        main_tags_col_name: main_tags,
-        sub_tags_col_name: sub_tags,
-        text_col_name: text_entry,
-    }, '\n')
-    return {
+
+
+    entry_id = YamlManagment._get_user_n_entry_id(user_id)            
+    # Actualize n entries in yaml
+    YamlManagment._increment_user_n_entry_id(user_id, 1)
+        
+    return {     
+        entry_id_col_name: entry_id,   
         date_col_name: text_date,
         main_tags_col_name: main_tags,
         sub_tags_col_name: sub_tags,
         text_col_name: text_entry,
     }
 
-def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
+def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
                                   format:Literal['sqlite', 'vdb']='sqlite'):
     def _process_entry(entry):
         date, text = '', ''
@@ -308,10 +348,10 @@ def txt_file_to_formatted_entries(file_path, entry_delimiter, file_tags_separato
              # Format tags to sqlite (string) 
             main_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
             sub_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else sub_tags
-            return format_entry(date, main_tags_str, sub_tags_str, text, format=format)
+            return format_entry(user_id, date, main_tags_str, sub_tags_str, text, format=format)
         # Retain lsit format otherwise
         else:
-            return format_entry(date, main_tags, sub_tags, text, format=format)
+            return format_entry(user_id, date, main_tags, sub_tags, text, format=format)
 
 
     # Open and read the file
@@ -365,20 +405,20 @@ class SentenceTransformersEmbeddings(Embeddings):
 
 class LangVdb:
     _vdb : Literal['qdrant', 'milvus'] = vdb
-    
 
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
 
+        
 
     @staticmethod
     def _initialize_vdb_collection(user_id):        
         if LangVdb._vdb == 'qdrant':
-            LangVdb._init_milvus_collection(user_id)
+            LangVdb._init_qdrant_collection(user_id)
 
     #    elif LangVdb._vdb == 'milvus':
-    #        LangVdb._init_qdrant_collection(user_id)
+    #        LangVdb._init_milvus_collection(user_id)
 
     #@staticmethod
     #def _init_milvus_collection(user_id):
@@ -401,10 +441,10 @@ class LangVdb:
     @staticmethod
     def access_vdb(user_id):
         if LangVdb._vdb == 'qdrant':
-            return LangVdb._access_milvus_vdb(user_id)
+            return LangVdb._access_qdrant_vdb(user_id)
             
     #    elif LangVdb._vdb == 'milvus':
-    #        return LangVdb._access_qdrant_vdb(user_id)
+    #        return LangVdb._access_milvus_vdb(user_id)
         
     #@staticmethod
     #def _access_milvus_vdb(user_id):
@@ -429,30 +469,63 @@ class LangVdb:
         if not QdrantClient(path=qdrant_database_path).collection_exists(collection_name=user_id):
             LangVdb._initialize_vdb_collection(user_id)
         return QdrantVectorStore.from_existing_collection(**vector_store_params)
-
-
-            
+        
+    @staticmethod
+    def _recursively_split_formatted_entries(entries):
+        def _create_new_entries(entry):
+            # Split the entry text
+            splitted_text = text_splitter.split_text(entry[text_col_name])
+            # Create new entries with splitted text (while adding chunked_entry_id_col_name)
+            return [
+                {
+                    entry_id_col_name: entry[entry_id_col_name],
+                    chunked_entry_id_col_name: child_id,
+                    date_col_name: entry[date_col_name], 
+                    main_tags_col_name: entry[main_tags_col_name],
+                    sub_tags_col_name: entry[sub_tags_col_name],
+                    text_col_name: text
+                } for child_id, text in enumerate(splitted_text, start=1)
+            ] 
+               
+        text_splitter = RecursiveCharacterTextSplitter(
+            # Set a really small chunk size, just to show.
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        
+        # Iterate over entries input, split each entry's text and accordingly create new entries
+        # with splitted text while conserving original entry's metadata. The list of new entries is returned.
+        return [new_entry for entry in entries for new_entry in _create_new_entries(entry)] if entries else None
 
     @staticmethod
-    def _texts_to_documents(entries:Union[List[dict], dict]):
-        if isinstance(entries, List):
+    def _texts_to_documents(entries:Union[List[dict], dict, None]):
+        if not entries:
+            return None
+        
+        elif isinstance(entries, List):
             entries = [entry for entry in entries if entry.get(text_col_name, None)]
             return [
                 Document(
                     page_content=entry_dict[text_col_name], 
                     metadata={
+                        entry_id_col_name: entry_dict[entry_id_col_name],
+                        chunked_entry_id_col_name: entry_dict[chunked_entry_id_col_name],
                         date_col_name: entry_dict[date_col_name], 
                         main_tags_col_name: entry_dict[main_tags_col_name],
                         sub_tags_col_name: entry_dict[sub_tags_col_name]
                         }
                     ) for entry_dict in entries
-                ] 
+                ] if entries else None
 
         else:
             return [
                 Document(
                     page_content=entries[text_col_name], 
                     metadata={
+                        entry_id_col_name: entries[entry_id_col_name],
+                        chunked_entry_id_col_name: entries[chunked_entry_id_col_name],
                         date_col_name: entries[date_col_name], 
                         main_tags_col_name: entries[main_tags_col_name],
                         sub_tags_col_name: entries[sub_tags_col_name]
@@ -462,13 +535,30 @@ class LangVdb:
 
 
     @staticmethod
-    def add_entry_to_vdb(vdb, formatted_entries:List):
-        documents_entries = LangVdb._texts_to_documents(formatted_entries)
+    def add_entry_to_vdb(user_id, vdb, formatted_entries:List):
+        # Split text and create corresponding entries (and chunked_entry_id)
+        splitted_formatted_entries = LangVdb._recursively_split_formatted_entries(formatted_entries)
+        # Convert entries to Document
+        documents_entries = LangVdb._texts_to_documents(splitted_formatted_entries)
+        # Add document in vector database
         if documents_entries:
-            for doc in documents_entries:
-               # print(doc)
-               pass
-            vdb.add_documents(documents=documents_entries)
+            ## Add documents in vector store
+            #vdb.add_documents(documents=documents_entries)
+            
+            namespace = f"{LangVdb._vdb}/{user_id}"
+            record_manager = SQLRecordManager(
+                namespace, db_url=sql_record_manager_path
+            )
+            record_manager.create_schema()
+        
+            # Index documents in vector store
+            index(
+                documents_entries,
+                record_manager,
+                vdb,
+                cleanup="incremental",
+                source_id_key=entry_id_col_name,
+            )
         
     @staticmethod
     def retrieval(query, lang_vdb, 

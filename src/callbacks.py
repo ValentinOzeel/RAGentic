@@ -4,7 +4,7 @@ import pandas as pd
 from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
 
 from page_ids import page_ids
-from tools import SignLog as sl, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangVdb as lvdb
+from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangVdb as lvdb
 
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
@@ -19,7 +19,7 @@ def on_sign_in(state, id, login_args):
 
     if all(element == 'dev' for element in acc_creation_values):
         # Add credentials except if user already exists
-        status = sl.add_user_credentials(state.user_email, state.user_password)
+        status = ym.add_user_credentials(state.user_email, state.user_password)
         if not status:
             notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
         else:
@@ -50,7 +50,7 @@ def on_sign_in(state, id, login_args):
             # If all is good until there
             else:
                 # Add credentials except if user already exists
-                status = sl.add_user_credentials(state.user_email, state.user_password)
+                status = ym.add_user_credentials(state.user_email, state.user_password)
                 if not status:
                     notify(state, 'error', 'An account is already associated to this email adress.', duration=notify_duration)
                 else:
@@ -66,7 +66,7 @@ def on_login(state, id, login_args):
     if user_email is None or user_password is None:
         notify(state, 'error', 'None of email adress and/or password fields should be empty.', duration=notify_duration)
         
-    elif not sl.check_user_credentials(user_email, user_password):
+    elif not ym.check_user_credentials(user_email, user_password):
         notify(state, 'error', 'Incorrect email adress and/or password.', duration=notify_duration)
         
     else:
@@ -93,12 +93,13 @@ def on_data_entry_add(state, action, info):
     # Add entry in sqlite
     sm.add_entry_to_sqlite(
         state.user_email, 
-        single_entry=format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
+        single_entry=format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
         )
     # Add embedded entry in vdb
     lvdb.add_entry_to_vdb(
+        state.user_email,
         state.lang_user_vdb, 
-        format_entry(state.text_date, main_tags, sub_tags, state.text_entry, format='vdb')
+        format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='vdb')
         )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
@@ -130,6 +131,7 @@ def on_txt_file_load(state, id, payload):
     
     try:
         format_kwargs = {
+            'user_id': state.user_email,
             'file_path':state.text_file_to_load,
             'entry_delimiter':state.entry_delimiter,
             'file_tags_separator':state.file_tags_separator,
@@ -146,6 +148,7 @@ def on_txt_file_load(state, id, payload):
             )
         # Add embedded entry in vdb
         lvdb.add_entry_to_vdb(
+            state.user_email,
             state.lang_user_vdb, 
             txt_file_to_formatted_entries(**format_kwargs, format='vdb')
             )
