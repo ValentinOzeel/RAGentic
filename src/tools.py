@@ -13,11 +13,14 @@ import sqlite3
 
 import easyocr
 
+from llama_parse import LlamaParse
+
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.indexes import SQLRecordManager, index
+from langchain_community.document_loaders import UnstructuredMarkdownLoader
 # Vector databases
 from pymilvus import MilvusClient
 from qdrant_client import QdrantClient, models
@@ -301,70 +304,6 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
 
 
-def format_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
-    if format == 'sqlite':
-        main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
-        sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
-
-
-    entry_id = YamlManagment._get_user_n_entry_id(user_id)            
-    # Actualize n entries in yaml
-    YamlManagment._increment_user_n_entry_id(user_id, 1)
-        
-    return {     
-        entry_id_col_name: entry_id,   
-        date_col_name: text_date,
-        main_tags_col_name: main_tags,
-        sub_tags_col_name: sub_tags,
-        text_col_name: text_entry,
-    }
-
-def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
-                                  format:Literal['sqlite', 'vdb']='sqlite'):
-    def _process_entry(entry):
-        date, text = '', ''
-        main_tags, sub_tags = [], []
-        
-        # Split the entry into lines
-        lines = entry.strip().split('\n')
-        
-        for i in range(len(lines)):
-            
-            # Remove date_delimiter as well as white spaces and grab the date
-            if date_delimiter in lines[i]:
-                date = lines[i].replace(date_delimiter, '').replace(' ', '')
-            # Remove main_tags delimiter, white spaces and split tags by their file_tags_separator
-            elif main_tags_delimiter in lines[i]:
-                main_tags = lines[i].replace(main_tags_delimiter, '').split(file_tags_separator)
-            # Remove sub_tags delimiter, white spaces and split tags by their file_tags_separator  
-            elif sub_tags_delimiter in lines[i]:
-                sub_tags = lines[i].replace(sub_tags_delimiter, '').split(file_tags_separator)
-            # Remove text_delimiter and grab the text
-            elif text_delimiter in lines[i]:
-                text = ' '.join(lines[i:]).replace(text_delimiter, '')
-
-        # Format list as str (sqlite cannot save list)
-        if format == 'sqlite':
-             # Format tags to sqlite (string) 
-            main_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
-            sub_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else sub_tags
-            return format_entry(user_id, date, main_tags_str, sub_tags_str, text, format=format)
-        # Retain lsit format otherwise
-        else:
-            return format_entry(user_id, date, main_tags, sub_tags, text, format=format)
-
-
-    # Open and read the file
-    with open(file_path, 'r') as file:
-        content = file.read()
-
-    # Split the content by the delimiter
-    entries = content.split(entry_delimiter)
-    # Process each entry to retrieve data
-    return [_process_entry(entry) for entry in entries]
-
-
-
 class SentenceTransformersEmbeddings(Embeddings):
     def __init__(self, model_name: str = embeddings_model_name):
         # Initialize the SentenceTransformer model using GPU or CPU
@@ -405,7 +344,16 @@ class SentenceTransformersEmbeddings(Embeddings):
 
 class LangVdb:
     _vdb : Literal['qdrant', 'milvus'] = vdb
-
+    
+    _pdf_parsers = {
+        "llama_parse": LlamaParse(
+                       api_key=os.environ.get('LLAMA_CLOUD_API_KEY'),
+                       result_type="markdown",  # "markdown" and "text" are available
+                       num_workers=4,  # if multiple files passed, split in `num_workers` API calls
+                       verbose=True,
+                       language="en",  # Optionally you can define a language, default=en
+                       )
+        }
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
@@ -471,6 +419,71 @@ class LangVdb:
         return QdrantVectorStore.from_existing_collection(**vector_store_params)
         
     @staticmethod
+    def format_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
+        if format == 'sqlite':
+            main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
+            sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
+
+
+        entry_id = YamlManagment._get_user_n_entry_id(user_id)            
+        # Actualize n entries in yaml
+        YamlManagment._increment_user_n_entry_id(user_id, 1)
+
+        return {     
+            entry_id_col_name: entry_id,   
+            date_col_name: text_date,
+            main_tags_col_name: main_tags,
+            sub_tags_col_name: sub_tags,
+            text_col_name: text_entry,
+        }
+
+    @staticmethod
+    def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
+                                      format:Literal['sqlite', 'vdb']='sqlite'):
+        def _process_entry(entry):
+            date, text = '', ''
+            main_tags, sub_tags = [], []
+
+            # Split the entry into lines
+            lines = entry.strip().split('\n')
+
+            for i in range(len(lines)):
+
+                # Remove date_delimiter as well as white spaces and grab the date
+                if date_delimiter in lines[i]:
+                    date = lines[i].replace(date_delimiter, '').replace(' ', '')
+                # Remove main_tags delimiter, white spaces and split tags by their file_tags_separator
+                elif main_tags_delimiter in lines[i]:
+                    main_tags = lines[i].replace(main_tags_delimiter, '').split(file_tags_separator)
+                # Remove sub_tags delimiter, white spaces and split tags by their file_tags_separator  
+                elif sub_tags_delimiter in lines[i]:
+                    sub_tags = lines[i].replace(sub_tags_delimiter, '').split(file_tags_separator)
+                # Remove text_delimiter and grab the text
+                elif text_delimiter in lines[i]:
+                    text = ' '.join(lines[i:]).replace(text_delimiter, '')
+
+            # Format list as str (sqlite cannot save list)
+            if format == 'sqlite':
+                 # Format tags to sqlite (string) 
+                main_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
+                sub_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else sub_tags
+                return LangVdb.format_entry(user_id, date, main_tags_str, sub_tags_str, text, format=format)
+            # Retain lsit format otherwise
+            else:
+                return LangVdb.format_entry(user_id, date, main_tags, sub_tags, text, format=format)
+
+
+        # Open and read the file
+        with open(file_path, 'r') as file:
+            content = file.read()
+
+        # Split the content by the delimiter
+        entries = content.split(entry_delimiter)
+        # Process each entry to retrieve data
+        return [_process_entry(entry) for entry in entries]
+
+
+    @staticmethod
     def _recursively_split_formatted_entries(entries):
         def _create_new_entries(entry):
             # Split the entry text
@@ -488,7 +501,6 @@ class LangVdb:
             ] 
                
         text_splitter = RecursiveCharacterTextSplitter(
-            # Set a really small chunk size, just to show.
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             length_function=len,
@@ -533,15 +545,31 @@ class LangVdb:
                     )
             ] if entries.get(text_col_name, None) else None
 
-
     @staticmethod
-    def add_entry_to_vdb(user_id, vdb, formatted_entries:List):
+    def entries_to_docs(formatted_entries:List):
         # Split text and create corresponding entries (and chunked_entry_id)
         splitted_formatted_entries = LangVdb._recursively_split_formatted_entries(formatted_entries)
         # Convert entries to Document
-        documents_entries = LangVdb._texts_to_documents(splitted_formatted_entries)
+        return LangVdb._texts_to_documents(splitted_formatted_entries)
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    @staticmethod
+    def add_docs_to_vdb(user_id, vdb, docs:List):
+
         # Add document in vector database
-        if documents_entries:
+        if docs:
             ## Add documents in vector store
             #vdb.add_documents(documents=documents_entries)
             
@@ -553,7 +581,7 @@ class LangVdb:
         
             # Index documents in vector store
             index(
-                documents_entries,
+                docs,
                 record_manager,
                 vdb,
                 cleanup="incremental",
@@ -658,3 +686,79 @@ class LangVdb:
                     ]
                 )
     
+    
+    
+    
+    
+    @staticmethod
+    def _parse_PDF(pdf_path, parser_type:str = 'llama_parse'):
+        
+        try:
+            # Parse PDF
+            parser = LangVdb._pdf_parsers[parser]
+            parsed_pdf = parser.load_data(pdf_path)
+            # Load parsing output in temporary file 
+            markdown_path = 'output.md'
+            with open(markdown_path, 'w') as f:
+                for doc in parsed_pdf:
+                    f.write(doc.text + '\n')
+            # Load md file with UnstructuredMarkdownLoader
+            # Will output docs as: page_content='🦜️🔗 LangChain' metadata={'source': '../../../README.md', 'category_depth': 0, 
+            # 'last_modified': '2024-06-28T15:20:01', 'languages': ['eng'], 'filetype': 'text/markdown', 'file_directory': '../../..', 
+            # 'filename': 'README.md', 'category': 'Title'}
+            loader = UnstructuredMarkdownLoader(markdown_path)
+            documents = loader.load()
+            # Delete the file
+            os.remove(markdown_path)
+            # Split loaded documents into chunks
+            return RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap).split_documents(documents)
+
+            
+        except Exception as e:
+            print(f"parse_PDFs fail: {e}")
+
+    @staticmethod
+    def _format_chunked_docs(user_id, chunked_docs:list, doc_date, main_tags, sub_tags):
+
+        for i, doc in enumerate(chunked_docs, start=1):
+            
+            entry_id = YamlManagment._get_user_n_entry_id(user_id)            
+            # Actualize n entries in yaml
+            YamlManagment._increment_user_n_entry_id(user_id, 1)
+            # Add metadata
+            doc.metadata[entry_id_col_name] = entry_id
+            doc.metadata[chunked_entry_id_col_name] = i
+            doc.metadata[date_col_name] = doc_date
+            doc.metadata[main_tags_col_name] = main_tags
+            doc.metadata[sub_tags_col_name] = sub_tags
+
+        return chunked_docs
+
+                     
+    @staticmethod
+    def _index_docs_to_vdb(user_id, vdb, docs, source_id_key="filename"):
+
+        namespace = f"{LangVdb._vdb}/{user_id}"
+        record_manager = SQLRecordManager(
+            namespace, db_url=sql_record_manager_path
+        )
+        record_manager.create_schema()
+        # Index documents in vector store
+        index(
+            docs,
+            record_manager,
+            vdb,
+            cleanup="incremental",
+            source_id_key=source_id_key,
+        )
+        
+    @staticmethod
+    def pdf_to_vdb(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags):
+        chunked_docs = LangVdb._parse_PDF(pdf_path)
+        docs = LangVdb._format_chunked_docs(user_id, chunked_docs, pdf_date, main_tags, sub_tags)
+        LangVdb._index_docs_to_vdb(user_id, vdb, docs)
+
+
+
+KEEP TRACK OF LOADED PDF FOR ADD FILTER "filename"
+ADD PDF DOCS IN SQL TOOO

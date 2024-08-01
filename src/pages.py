@@ -193,3 +193,14 @@ with tgb.Page() as retrieve_data:
             tgb.button("Send query", on_action=on_retrieval_query)
         
     tgb.text('{retrieval_results}', mode='pre')
+    
+    
+    
+    
+NEW PAGE FOR RAG (BASED ON USER'S TEXTS OR PDF FILES')
+LET USER LOAD NEW PDFs OR CHOOSE IN PREVIOUS PDFs
+
+        tgb.file_selector("{text_file_to_load}", 
+                          label="Upload your text file*", 
+                          extensions=".txt", drop_message="Drop your txt file here", 
+                          on_action=on_txt_file_load)

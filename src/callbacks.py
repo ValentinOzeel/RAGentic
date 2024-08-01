@@ -4,7 +4,7 @@ import pandas as pd
 from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
 
 from page_ids import page_ids
-from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, format_entry, txt_file_to_formatted_entries, LangVdb as lvdb
+from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb
 
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
@@ -93,13 +93,13 @@ def on_data_entry_add(state, action, info):
     # Add entry in sqlite
     sm.add_entry_to_sqlite(
         state.user_email, 
-        single_entry=format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
+        single_entry=lvdb.format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
         )
     # Add embedded entry in vdb
-    lvdb.add_entry_to_vdb(
+    lvdb.add_docs_to_vdb(
         state.user_email,
         state.lang_user_vdb, 
-        format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='vdb')
+        docs = lvdb.entries_to_docs(lvdb.format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='vdb'))
         )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
@@ -144,14 +144,16 @@ def on_txt_file_load(state, id, payload):
         # Add entry in sqlite
         sm.add_entry_to_sqlite(
             state.user_email, 
-            multiple_entries=txt_file_to_formatted_entries(**format_kwargs, format='sqlite')
-            )
+            multiple_entries=lvdb.txt_file_to_formatted_entries(**format_kwargs, format='sqlite')
+        )
+        
         # Add embedded entry in vdb
-        lvdb.add_entry_to_vdb(
+        lvdb.add_docs_to_vdb(
             state.user_email,
             state.lang_user_vdb, 
-            txt_file_to_formatted_entries(**format_kwargs, format='vdb')
+            docs = lvdb.entries_to_docs(lvdb.txt_file_to_formatted_entries(**format_kwargs, format='vdb'))
             )
+    
         # upadte table
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values

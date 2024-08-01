@@ -39,7 +39,7 @@ filter_main_tags = []
 filter_sub_tags = []
 
 chunk_size = 2000
-chunk_overlap = 500
+chunk_overlap = 200
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
@@ -193,6 +193,7 @@ mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diver
 
 # For langchain indexing
 sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
+
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
