@@ -121,6 +121,22 @@ class YamlManagment():
         with open(credentials_yaml_path, 'w') as file:
             yaml.dump(data, file)
 
+    @staticmethod
+    def _add_user_pdf(user_id, pdf_file_name):
+        # Load yaml credentials
+        with open(credentials_yaml_path, 'r') as file:
+            data = yaml.safe_load(file)  
+        # Create user_loaded_pdfs dict if doesnt exist
+        if not data.get('user_loaded_pdfs', None):
+            data['user_loaded_pdfs'] = {}
+        # Init user_loaded_pdfs for user_if if it doesnt exists already
+        if not data['user_loaded_pdfs'].get(user_id, None):
+            data['user_loaded_pdfs'][user_id] = []
+        # Append pdf file name
+        data['user_loaded_pdfs'][user_id].append(pdf_file_name)
+        # Persist data in yaml
+        with open(credentials_yaml_path, 'w') as file:
+            yaml.dump(data, file)
 
 
 
@@ -695,11 +711,11 @@ class LangVdb:
         
         try:
             # Parse PDF
-            parser = LangVdb._pdf_parsers[parser]
+            parser = LangVdb._pdf_parsers[parser_type]
             parsed_pdf = parser.load_data(pdf_path)
             # Load parsing output in temporary file 
             markdown_path = 'output.md'
-            with open(markdown_path, 'w') as f:
+            with open(markdown_path, 'w', encoding='utf-8') as f:
                 for doc in parsed_pdf:
                     f.write(doc.text + '\n')
             # Load md file with UnstructuredMarkdownLoader
@@ -715,7 +731,7 @@ class LangVdb:
 
             
         except Exception as e:
-            print(f"parse_PDFs fail: {e}")
+            print(f"parse_PDF fail: {e}")
 
     @staticmethod
     def _format_chunked_docs(user_id, chunked_docs:list, doc_date, main_tags, sub_tags):
@@ -751,14 +767,46 @@ class LangVdb:
             cleanup="incremental",
             source_id_key=source_id_key,
         )
-        
+
     @staticmethod
-    def pdf_to_vdb(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags):
+    def _docs_to_sqlite(user_id, docs):
+        list_entries = [
+            {
+                entry_id_col_name: doc.metadata[entry_id_col_name],   
+                date_col_name: doc.metadata[date_col_name],
+                main_tags_col_name: doc.metadata[main_tags_col_name],
+                sub_tags_col_name: doc.metadata[sub_tags_col_name],
+                text_col_name: doc.page_content,
+            } for doc in docs
+        ]
+        SQLiteManagment.add_entry_to_sqlite(user_id, multiple_entries=list_entries)
+
+     
+    @staticmethod
+    def pdf_to_db(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags, vdb_add=True, sqlite_add=True):
+        
+        # Parse pdf and get chunked documents
         chunked_docs = LangVdb._parse_PDF(pdf_path)
+        # Format documents
         docs = LangVdb._format_chunked_docs(user_id, chunked_docs, pdf_date, main_tags, sub_tags)
-        LangVdb._index_docs_to_vdb(user_id, vdb, docs)
+        # Index in vdb
+        if vdb_add:
+            LangVdb._index_docs_to_vdb(user_id, vdb, docs)
+        # Add in sqlite
+        if sqlite_add:
+            LangVdb._docs_to_sqlite(user_id, docs)
+        # Add pdf in yml user's pdf list
+        YamlManagment._add_user_pdf(user_id, os.path.basename(pdf_path))
+        
 
 
 
-KEEP TRACK OF LOADED PDF FOR ADD FILTER "filename"
-ADD PDF DOCS IN SQL TOOO
+#RAG:
+#KEEP TRACK OF LOADED PDF FOR ADD FILTER "filename" in RAG
+#ADD PDF DOCS IN SQL TOOO
+#MOVE RETRIEVAL IN RAG CLASS
+
+
+            
+        
+    

@@ -60,8 +60,14 @@ date_delimiter = 'DATE: '
 main_tags_delimiter = 'MAIN_TAGS: '
 sub_tags_delimiter = 'SUB_TAGS: '
 text_delimiter = 'TEXT: '
-text_file_to_load = None
+file_path_to_load = None
 
+pdf_date = ''
+pdf_tags_separator = '//'
+pdf_main_tags = ''
+pdf_sub_tags = ''
+pdf_path_to_load = ''
+                
 ###                                ###               
 ###   Language for image to text   ###
 ###                                ###
@@ -193,6 +199,7 @@ mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diver
 
 # For langchain indexing
 sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
+
 
 
 # Assuming we are in src\constants.py

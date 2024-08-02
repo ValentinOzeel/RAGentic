@@ -1,8 +1,10 @@
 import taipy.gui.builder as tgb
 from taipy.gui import navigate, notify
-import pandas as pd
-from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
 
+import os
+import pandas as pd
+
+from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
 from page_ids import page_ids
 from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb
 
@@ -12,6 +14,9 @@ def _get_user_tags(state):
         state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list if tag)))
         state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list if tag))) 
     return state
+
+def _delete_loaded_file(file_path):
+    os.remove(file_path)
 
 def on_sign_in(state, id, login_args):    
     # State corresponding values
@@ -89,6 +94,8 @@ def on_data_entry_add(state, action, info):
     if state.tags_separator:
         main_tags = [tag for tag in state.main_tags.split(state.tags_separator) if state.tags_separator in state.main_tags] if state.main_tags else state.main_tags
         sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator) if state.tags_separator in state.sub_tags] if state.sub_tags else state.sub_tags
+    else:
+        main_tags, sub_tags = state.main_tags, state.sub_tags
 
     # Add entry in sqlite
     sm.add_entry_to_sqlite(
@@ -123,7 +130,7 @@ def on_image_to_text(state, id, payload):
         notify(state, 'success', 'Converted image as text', duration=notify_duration)
          
 def on_txt_file_load(state, id, payload):
-    if not all([state.entry_delimiter, state.text_delimiter, state.text_file_to_load]):
+    if not all([state.entry_delimiter, state.text_delimiter, state.file_path_to_load]):
         return notify(state,'error', 'You must at least provide entry_delimiter, text_delimiter and the text file.', duration=notify_duration)
     
     if not all([state.date_delimiter, state.file_tags_separator, state.main_tags_delimiter, state.sub_tags_delimiter]):
@@ -132,7 +139,7 @@ def on_txt_file_load(state, id, payload):
     try:
         format_kwargs = {
             'user_id': state.user_email,
-            'file_path':state.text_file_to_load,
+            'file_path':state.file_path_to_load,
             'entry_delimiter':state.entry_delimiter,
             'file_tags_separator':state.file_tags_separator,
             'date_delimiter':state.date_delimiter,
@@ -158,14 +165,60 @@ def on_txt_file_load(state, id, payload):
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
         state = _get_user_tags(state)
+        # Delete loaded file
+        _delete_loaded_file(state.file_path_to_load)
+        
+        notify(state,'success', 'Loaded text file in databases', duration=notify_duration)
         
     except Exception as e:
         print(e)
-        return notify(state,'error', "The file couldn't be loaded", duration=notify_duration)
+        return notify(state,'error', "The file couldn't be loaded in database", duration=notify_duration)
     
-    notify(state,'success', 'Loaded text file as entries', duration=notify_duration)
+
         
-    
+        
+def on_pdf_file_load(state, id, payload):
+    if state.pdf_tags_separator:
+        pdf_main_tags = [
+            tag for tag in state.pdf_main_tags.split(state.pdf_tags_separator) if state.pdf_tags_separator in state.pdf_main_tags
+            ] if state.pdf_main_tags else state.pdf_main_tags
+        
+        pdf_sub_tags = [
+            tag for tag in state.pdf_sub_tags.split(state.pdf_tags_separator) if state.pdf_tags_separator in state.pdf_sub_tags
+            ] if state.pdf_sub_tags else state.pdf_sub_tags
+        
+    else:
+        pdf_main_tags, pdf_sub_tags = state.pdf_main_tags, state.pdf_sub_tags
+
+    try:
+        # Add pdf in sqlite and vdb
+        lvdb.pdf_to_db(
+            state.user_email, 
+            state.lang_user_vdb, 
+            state.pdf_path_to_load, state.pdf_date, pdf_main_tags, pdf_sub_tags, 
+            vdb_add=True, sqlite_add=True
+            )
+
+        # Udpate dataframe shown
+        state.user_table = sm.sqlite_to_dataframe(state.user_email)
+        # Get all unique user's main and sub-tags values
+        state = _get_user_tags(state)
+        # Delete loaded file
+        _delete_loaded_file(state.pdf_path_to_load)
+        state.pdf_path_to_load = ''
+
+        # Notify success
+        notify(state, 'success', 'PDF added to databases.', duration=notify_duration)
+        
+    except Exception as e:
+        print(e)
+        return notify(state,'error', "The file couldn't be loaded in databases", duration=notify_duration)
+
+
+
+
+
+
 def on_filter_date(state, id, payload, use_fresh_df=True):
     start_date, end_date = pd.to_datetime(state.filter_dates[0]), pd.to_datetime(state.filter_dates[1])
     
@@ -221,7 +274,6 @@ def on_reset_filters(state, id, payload):
     
     
 def on_retrieval_query(state, id, payload):
-    print('OKOKOKOKO',  state.retrieval_rerank_flag)
     state.retrieval_results = lvdb.retrieval(
         query= state.retrieval_query,
         lang_vdb= state.lang_user_vdb,

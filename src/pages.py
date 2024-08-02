@@ -8,6 +8,7 @@ from callbacks import (
             on_data_entry_add,
             on_image_to_text,
             on_txt_file_load,
+            on_pdf_file_load,
             on_filter_date,
             on_filter_tags,
             on_reset_filters,
@@ -20,7 +21,8 @@ from constants import (
     text_date, tags_separator, main_tags, sub_tags, text_entry, 
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
     user_table, user_main_tags, user_sub_tags, filter_dates, filter_strictness_choices, filter_strictness, filter_main_tags, filter_sub_tags,
-    entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, text_file_to_load,
+    entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, file_path_to_load, 
+    pdf_date, pdf_tags_separator, pdf_main_tags, pdf_sub_tags, pdf_path_to_load,
     lang_user_vdb, retrieval_query, k_outputs_retrieval, retrieval_rerank_flag, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results
 )
 
@@ -122,12 +124,21 @@ with tgb.Page() as manage_data:
         tgb.input("{main_tags_delimiter}", label='Main tags delimiter')
         tgb.input("{sub_tags_delimiter}", label='Sub tags delimiter')
         tgb.input("{text_delimiter}", label='Text delimiter*')
-        tgb.file_selector("{text_file_to_load}", 
+        tgb.file_selector("{file_path_to_load}", 
                           label="Upload your text file*", 
                           extensions=".txt", drop_message="Drop your txt file here", 
                           on_action=on_txt_file_load)
         
-        
+    tgb.text("## Load a PDF file:", mode="md")
+    with tgb.layout("1 1 1 1 1"):
+        tgb.input("{pdf_date}", label='PDF date')
+        tgb.input("{pdf_tags_separator}", label='Separator (fill fields with several values)')
+        tgb.input("{pdf_main_tags}", label='Main tags')
+        tgb.input("{pdf_sub_tags}", label='Sub tags')
+        tgb.file_selector("{pdf_path_to_load}", 
+                          label="Upload your PDF file*", 
+                          extensions=".pdf", drop_message="Drop your PDF file here", 
+                          on_action=on_pdf_file_load)
         
 with tgb.Page() as retrieve_data:
     tgb.text("## Your data:", mode="md")
@@ -196,11 +207,8 @@ with tgb.Page() as retrieve_data:
     
     
     
-    
-NEW PAGE FOR RAG (BASED ON USER'S TEXTS OR PDF FILES')
-LET USER LOAD NEW PDFs OR CHOOSE IN PREVIOUS PDFs
-
-        tgb.file_selector("{text_file_to_load}", 
-                          label="Upload your text file*", 
-                          extensions=".txt", drop_message="Drop your txt file here", 
-                          on_action=on_txt_file_load)
+#    
+#NEW PAGE FOR RAG (BASED ON USER'S TEXTS OR PDF FILES')
+#LET USER LOAD NEW PDFs OR CHOOSE IN PREVIOUS PDFs
+#
+#
