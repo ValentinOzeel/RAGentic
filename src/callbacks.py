@@ -211,7 +211,7 @@ def on_pdf_file_load(state, id, payload):
         notify(state, 'success', 'PDF added to databases.', duration=notify_duration)
         
     except Exception as e:
-        print(e)
+        print('_on_pdf_load fail: ', e)
         return notify(state,'error', "The file couldn't be loaded in databases", duration=notify_duration)
 
 

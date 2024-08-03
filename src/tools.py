@@ -20,13 +20,13 @@ from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.indexes import SQLRecordManager, index
-from langchain_community.document_loaders import UnstructuredMarkdownLoader
-# Vector databases
-from pymilvus import MilvusClient
+from langchain_community.document_loaders import TextLoader
+## Vector databases
+#from pymilvus import MilvusClient
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, MatchAny
 # Langchain integreation
-from langchain_milvus.vectorstores import Milvus
+#from langchain_milvus.vectorstores import Milvus
 from langchain_qdrant import QdrantVectorStore
 from langchain_qdrant import FastEmbedSparse, RetrievalMode
 # Rerank
@@ -364,7 +364,7 @@ class LangVdb:
     _pdf_parsers = {
         "llama_parse": LlamaParse(
                        api_key=os.environ.get('LLAMA_CLOUD_API_KEY'),
-                       result_type="markdown",  # "markdown" and "text" are available
+                       result_type="text",  # "markdown" and "text" are available
                        num_workers=4,  # if multiple files passed, split in `num_workers` API calls
                        verbose=True,
                        language="en",  # Optionally you can define a language, default=en
@@ -714,24 +714,26 @@ class LangVdb:
             parser = LangVdb._pdf_parsers[parser_type]
             parsed_pdf = parser.load_data(pdf_path)
             # Load parsing output in temporary file 
-            markdown_path = 'output.md'
-            with open(markdown_path, 'w', encoding='utf-8') as f:
+            txt_file_path = 'output.txt'
+            with open(txt_file_path, 'w', encoding='utf-8') as f:
                 for doc in parsed_pdf:
                     f.write(doc.text + '\n')
-            # Load md file with UnstructuredMarkdownLoader
-            # Will output docs as: page_content='🦜️🔗 LangChain' metadata={'source': '../../../README.md', 'category_depth': 0, 
-            # 'last_modified': '2024-06-28T15:20:01', 'languages': ['eng'], 'filetype': 'text/markdown', 'file_directory': '../../..', 
-            # 'filename': 'README.md', 'category': 'Title'}
-            loader = UnstructuredMarkdownLoader(markdown_path)
+            # Load txt file with TextLoader
+            #[
+            #    Document(
+                # page_content='---\nsidebar_position: 0\n---\nThey optionally implement:\n\n3. "Lazy load": load documents into memory lazily\n', 
+                # metadata={'source': '../docs/docs/modules/data_connection/document_loaders/index.md'})
+            #]
+            loader = TextLoader(txt_file_path, autodetect_encoding=True)
             documents = loader.load()
             # Delete the file
-            os.remove(markdown_path)
+            os.remove(txt_file_path)
             # Split loaded documents into chunks
             return RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap).split_documents(documents)
 
             
         except Exception as e:
-            print(f"parse_PDF fail: {e}")
+            print(f"_parse_PDF fail: {e}")
 
     @staticmethod
     def _format_chunked_docs(user_id, chunked_docs:list, doc_date, main_tags, sub_tags):
@@ -752,8 +754,7 @@ class LangVdb:
 
                      
     @staticmethod
-    def _index_docs_to_vdb(user_id, vdb, docs, source_id_key="filename"):
-
+    def _index_docs_to_vdb(user_id, vdb, docs, source_id_key="source"):
         namespace = f"{LangVdb._vdb}/{user_id}"
         record_manager = SQLRecordManager(
             namespace, db_url=sql_record_manager_path

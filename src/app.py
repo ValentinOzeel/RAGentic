@@ -1,6 +1,6 @@
 from taipy.gui import Gui
 
-from tools import YamlManagment, SQLiteManagment, LangVdb
+from tools import YamlManagment, SQLiteManagment
 from pages import (
     welcome,
     init,

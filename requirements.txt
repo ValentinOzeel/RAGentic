@@ -11,4 +11,4 @@ qdrant-client
 xformers
 flashrank
 llama-parse
-unstructured
+
