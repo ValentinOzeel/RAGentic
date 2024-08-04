@@ -38,21 +38,22 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
-chunk_size = 2000
-chunk_overlap = 200
+chunk_size = 500
+chunk_overlap = 100
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
 retrieval_search_type = retrieval_search_type_possibilities[0]
 retrieval_filter_strictness_choices = ['any tags', 'all tags']
 retrieval_filter_strictness = retrieval_filter_strictness_choices[0]
-retrieval_rerank_flag = False
+retrieval_rerank_flag = True
 k_outputs_retrieval = 1
 retrieval_main_tags = []
 retrieval_sub_tags = []
 retrieval_results = ''
 
-lang_user_vdb = None         
+lang_user_vdb = None    
+RAGentic = None     
 
 entry_delimiter = '----'
 file_tags_separator = '//'
@@ -170,9 +171,38 @@ image_to_text_output = ''
 ###                         ###
 
 
-notify_duration = 5000 #mseconds
+notify_duration = 8000 #mseconds
 
 sqlite_tags_separator = ','
+
+
+
+###                         ###               
+###      LLM constants      ###
+###                         ###
+
+ollama_llms = [
+    #https://github.com/ollama/ollama#model-library
+    'llama3.1', # 8b
+    'llama3.1:70b',
+    'llama3.1:405b',
+    'phi3', # 3.8b
+    'phi3:medium', # 14b
+    'gemma2', #9b
+    'gemma2:27b',
+    'mistral', # 7b
+    'moondream', # 1.4b
+    'neural-chat', # 7b
+    'starling-lm', # 7b
+    'codellama', # 7b
+    'llama2-uncensored', # 7b
+    'llava', # 7b
+    'solar', # 10.7b        
+]
+
+llm_name = 'llama3.1'
+llm_temperature = 0.65
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # ！The default dimension is 1024.
@@ -201,6 +231,13 @@ mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diver
 sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
 
+# Query prompt for llm to rewrite user' query
+query_prompt = """You are an AI language model assistant. Your task is to generate five 
+            different versions of the given user question to retrieve relevant documents from a vector 
+            database. By generating multiple perspectives on the user question, your goal is to help
+            the user overcome some of the limitations of the distance-based similarity search. 
+            Provide these alternative questions separated by newlines.
+            Original question: {question}"""
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

@@ -6,7 +6,7 @@ import pandas as pd
 
 from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
 from page_ids import page_ids
-from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb
+from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb, RAGentic
 
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
@@ -82,6 +82,8 @@ def on_login(state, id, login_args):
         state = _get_user_tags(state)
         # Access vdb collection
         state.lang_user_vdb = lvdb.access_vdb(state.user_email)
+        # Initiate RAGentic objet in state
+        state.RAGentic = RAGentic()
         notify(state, 'success', 'Successful authentification.')
         navigate(state, page_ids["root_page"])
     
@@ -274,7 +276,7 @@ def on_reset_filters(state, id, payload):
     
     
 def on_retrieval_query(state, id, payload):
-    state.retrieval_results = lvdb.retrieval(
+    state.retrieval_results = state.RAGentic.retrieval(
         query= state.retrieval_query,
         lang_vdb= state.lang_user_vdb,
         rerank= state.retrieval_rerank_flag,

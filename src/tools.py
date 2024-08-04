@@ -32,6 +32,14 @@ from langchain_qdrant import FastEmbedSparse, RetrievalMode
 # Rerank
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import FlashrankRerank
+# LLM
+from langchain_ollama import ChatOllama
+# User query rewrite
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_core.output_parsers import BaseOutputParser
+from langchain_core.prompts import PromptTemplate
+# RRF
+from langchain.load import dumps, loads
 
 
 
@@ -43,7 +51,8 @@ from constants import (credentials_yaml_path,
                        device,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank_flag,
                        sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
-                       retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult
+                       retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult,
+                       llm_name, llm_temperature, query_prompt
 )
             
             
@@ -603,106 +612,7 @@ class LangVdb:
                 cleanup="incremental",
                 source_id_key=entry_id_col_name,
             )
-        
-    @staticmethod
-    def retrieval(query, lang_vdb, 
-                  rerank:bool=retrieval_rerank_flag, filters:Dict={}, filter_strictness=filter_strictness_choices[0], k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, 
-                  str_format_results:bool=True):
-        
-        # Build initial search_kwargs
-        search_kwargs = {'k': k_outputs}
-                
-        if filters:
-            # If there is filters value
-            if any([value for key, value in filters.items()]):
-                # Convert filter for qdrant
-                if LangVdb._vdb == 'qdrant':
-                    filters = LangVdb._convert_filters_to_qdrant_filter(filters, filter_strictness)
-                # Add filter in search_kwargs
-                search_kwargs['filter'] = filters     
-
-        # kwargs specific to "similarity_score_threshold" and "mmr"
-        if search_type == "similarity_score_threshold":
-            search_kwargs['score_threshold'] = relevance_threshold
-        elif search_type == "mmr":
-            search_kwargs['fetch_k'] = mmr_fetch_k
-            search_kwargs['lambda_mult'] = mmr_lambda_mult       
-        
-        # Get retrieval engine
-        retriever = lang_vdb.as_retriever(
-            search_type=search_type,
-            search_kwargs=search_kwargs
-            )
-        
-        print('\n\n\n\n\n\mSEARCH PARAMS', search_kwargs)
-        
-        if not rerank:
-            retrieved_docs = retriever.invoke(query)
-        else:
-            # Perform rerank with FlashRank
-            compressor = FlashrankRerank()
-            compression_retriever = ContextualCompressionRetriever(
-                base_compressor=compressor, base_retriever=retriever
-            )       
-            retrieved_docs = compression_retriever.invoke(query)
-        
-        print('DOCS:', LangVdb._retrieval_results_str_format(retrieved_docs))
-        
-        
-        return LangVdb._retrieval_results_str_format(retrieved_docs) if str_format_results else retrieved_docs
-
-    @staticmethod
-    def _convert_filters_to_qdrant_filter(filters: Dict, filter_strictness:str) -> Union[Filter, None]:
-        
-        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str) -> 'FieldCondition':
-            if value_or_any == 'match_value':
-                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchValue(value=filter_value))
-            elif value_or_any == 'match_any':
-                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchAny(any=filter_value))
-        
-        if not filters:
-            return None
-        
-        # For now we only add filter for main_tags and sub_tags (which are lists)
-        available_filters = [main_tags_col_name, sub_tags_col_name]
-        must_conditions = []
-        
-        
-        for filter_name, filter_value in filters.items():
-            if filter_name in available_filters and filter_value:
-                # If strictness = any tags
-                if filter_strictness == filter_strictness_choices[0]:
-                    
-                    if isinstance(filter_value, list):
-                        # Must match at least one of the values in filter
-                        must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
-                    # For other typer of filters such as date
-                    #else:
-                    #    must_conditions.append(_create_field_condition(filter_name, filter_value))
-
-                # Elif all tags must be present
-                elif filter_strictness == filter_strictness_choices[1]:
-                    if isinstance(filter_value, list):
-                        # iterate over each tag and check if all of these are present in metadata
-                        for value in filter_value:
-                            must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
-            
-        return Filter(must=must_conditions)
-    
-    
-    
-    @staticmethod
-    def _retrieval_results_str_format(retrieved_docs):
  
-        return f"\n{'-'*50}\n".join(
-                    [
-                        f"Document {i+1}:\n{doc.page_content}\n" +\
-                        f"Metadata:\n" + "\n".join([f"{key}: {str(value)}" for key, value in doc.metadata.items()])
-                        for i, doc in enumerate(retrieved_docs)
-                    ]
-                )
-    
-    
     
     
     
@@ -808,6 +718,175 @@ class LangVdb:
 #MOVE RETRIEVAL IN RAG CLASS
 
 
+class RAGentic():
+    
+    def __init__(self):
+        self.llm = ChatOllama(
+            model=llm_name,
+            temperature=0,
+        )
+        
+
+    def retrieval(self, query, lang_vdb,  
+                  filters:Dict={}, filter_strictness=filter_strictness_choices[0], 
+                  k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, rerank:Literal['flaskrank', 'fusion', False, None]=retrieval_rerank_flag, llm_query_rewrite:bool=True,
+                  str_format_results:bool=True):
+        
+        # Build initial search_kwargs
+        search_kwargs = {'k': k_outputs}
+                
+        if filters:
+            # If there is filters value
+            if any([value for key, value in filters.items()]):
+                # Convert filter for qdrant
+                if LangVdb._vdb == 'qdrant':
+                    filters = self._convert_filters_to_qdrant_filter(filters, filter_strictness)
+                # Add filter in search_kwargs
+                search_kwargs['filter'] = filters     
+
+        # kwargs specific to "similarity_score_threshold" and "mmr"
+        if search_type == "similarity_score_threshold":
+            search_kwargs['score_threshold'] = relevance_threshold
+        elif search_type == "mmr":
+            search_kwargs['fetch_k'] = mmr_fetch_k
+            search_kwargs['lambda_mult'] = mmr_lambda_mult       
+        
+
+        # Get retrieval engine
+        retriever = lang_vdb.as_retriever(
+            search_type=search_type,
+            search_kwargs=search_kwargs
+            )
+        
+        if llm_query_rewrite:
+            retriever = self.get_multiquery_retriever(retriever)
             
         
+        if not rerank:
+            retrieved_docs = retriever.invoke(query) if not llm_query_rewrite else retriever.invoke(query)[:k_outputs-1]
+            print(retrieved_docs)
+        else:
+            reranked_docs = self._reranking(rerank, retriever, query, k_outputs)
+
+        print('DOCS:', self._retrieval_results_str_format(retrieved_docs))
+        
+        
+        
+        
+        DO MULTIQUERY FROM SCRATCH RATHER THAN USING THE RETRIEVER SO THAT IT IS EASY TO ONLY GET UNIUQUE DOCS IF NOT RERANKING, OR TO RERANK WITH RRF
+        
+        
+        
+        return self._retrieval_results_str_format(retrieved_docs) if str_format_results else retrieved_docs
+
+    def _convert_filters_to_qdrant_filter(self, filters: Dict, filter_strictness:str) -> Union[Filter, None]:
+        
+        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str) -> 'FieldCondition':
+            if value_or_any == 'match_value':
+                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchValue(value=filter_value))
+            elif value_or_any == 'match_any':
+                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchAny(any=filter_value))
+        
+        if not filters:
+            return None
+        
+        # For now we only add filter for main_tags and sub_tags (which are lists)
+        available_filters = [main_tags_col_name, sub_tags_col_name]
+        must_conditions = []
+        
+        
+        for filter_name, filter_value in filters.items():
+            if filter_name in available_filters and filter_value:
+                # If strictness = any tags
+                if filter_strictness == filter_strictness_choices[0]:
+                    
+                    if isinstance(filter_value, list):
+                        # Must match at least one of the values in filter
+                        must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
+                    # For other typer of filters such as date
+                    #else:
+                    #    must_conditions.append(_create_field_condition(filter_name, filter_value))
+
+                # Elif all tags must be present
+                elif filter_strictness == filter_strictness_choices[1]:
+                    if isinstance(filter_value, list):
+                        # iterate over each tag and check if all of these are present in metadata
+                        for value in filter_value:
+                            must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
+            
+        return Filter(must=must_conditions)
+    
+    def _get_multi_query_llm_chain(self):
+        
+        class LineQueryParser(BaseOutputParser[List[str]]):
+                #Output parser for a list of lines: will split the LLM user' query rewrite into a list of queries
+                def parse(self, text: str) -> List[str]:
+                    lines = text.strip().split("\n")
+                    return list(filter(None, lines))  # Remove empty lines
+
+        query_parser = LineQueryParser()
+
+        query_prompt_template = PromptTemplate(
+            input_variables=["question"],
+            template=query_prompt,
+        )
+
+        setattr(self.llm, 'temperature', 0.15)
+        # Chain
+        llm_query_chain = query_prompt_template | self.llm | query_parser
+        return llm_query_chain
+    
+    def get_multiquery_retriever(self, base_retriever):
+        # Build retriever that perform llm based rewritting of user' query to fetch better docs in VDB
+        # See https://python.langchain.com/v0.2/docs/how_to/MultiQueryRetriever/
+        return MultiQueryRetriever(
+            retriever=base_retriever, llm_chain=self._get_multi_query_llm_chain(), parser_key="lines"
+        )  # "lines" is the key (attribute name) of the parsed output
+        
+    
+    def _reranking(self, rerank:Literal['flaskrank', 'fusion', False, None], base_retriever, query, k_outputs):
+        if rerank:
+            if rerank == 'flaskrank':
+                return self._flashrank_reranking(base_retriever, query, k_outputs)
+                
+            elif rerank == 'fusion':
+                return self._reciprocal_ranking_fusion()
+      
+    def _flashrank_reranking(self, base_retriever, query, k_outputs):
+        # Perform reranking with FlashRank
+        compressor = FlashrankRerank()
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=compressor, base_retriever=base_retriever
+        )       
+        retrieved_docs = compression_retriever.invoke(query)
+        return retrieved_docs[:k_outputs-1]  
+    
+    def __reciprocal_ranking_fusion(self, base_retriever, query, k_outputs):
+        retrieved_docs = base_retriever.invoke(query)
+    
+        fused_scores = {}
+        for docs in retrieved_docs:
+            # Assumes the docs are returned in sorted order of relevance
+            for rank, doc in enumerate(docs):
+                doc_str = dumps(doc)
+                if doc_str not in fused_scores:
+                    fused_scores[doc_str] = 0
+                fused_scores[doc_str] += 1 / (rank + k_outputs)
+
+        reranked_results = [
+            (loads(doc), score)
+            for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+        ]
+        return reranked_results
+    
+    def _retrieval_results_str_format(self, retrieved_docs):
+ 
+        return f"\n{'-'*100}\n".join(
+                    [
+                        f"Document {i+1}:\n{doc.page_content}\n" +\
+                        f"Metadata:\n" + "\n".join([f"{key}: {str(value)}" for key, value in doc.metadata.items()])
+                        for i, doc in enumerate(retrieved_docs)
+                    ]
+                )
+    
     

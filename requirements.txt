@@ -6,6 +6,7 @@ langchain
 langchain-milvus
 langchain-community
 langchain-qdrant
+langchain-ollama
 fastembed
 qdrant-client
 xformers
