@@ -24,7 +24,6 @@ text_entry = ''
 user_table = pd.DataFrame()
 retrieval_data = pd.DataFrame()
 entry_id_col_name = 'entry_id'
-chunked_entry_id_col_name = 'chunked_entry_id'
 date_col_name = 'text_date'
 main_tags_col_name = 'main_tags'
 sub_tags_col_name = 'sub_tags'
@@ -46,7 +45,7 @@ retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold
 retrieval_search_type = retrieval_search_type_possibilities[0]
 retrieval_filter_strictness_choices = ['any tags', 'all tags']
 retrieval_filter_strictness = retrieval_filter_strictness_choices[0]
-retrieval_rerank_flag = True
+retrieval_rerank = 'flashrank'
 k_outputs_retrieval = 1
 retrieval_main_tags = []
 retrieval_sub_tags = []
@@ -201,7 +200,7 @@ ollama_llms = [
 ]
 
 llm_name = 'llama3.1'
-llm_temperature = 0.65
+llm_temperature = 0.15
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -233,11 +232,11 @@ sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
 # Query prompt for llm to rewrite user' query
 query_prompt = """You are an AI language model assistant. Your task is to generate five 
-            different versions of the given user question to retrieve relevant documents from a vector 
-            database. By generating multiple perspectives on the user question, your goal is to help
+            different versions of the given user query to retrieve relevant documents from a vector 
+            database. By generating multiple perspectives on the user query, your goal is to help
             the user overcome some of the limitations of the distance-based similarity search. 
             Provide these alternative questions separated by newlines.
-            Original question: {question}"""
+            Original query: {original_query}"""
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

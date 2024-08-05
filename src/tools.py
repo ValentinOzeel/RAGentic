@@ -25,31 +25,31 @@ from langchain_community.document_loaders import TextLoader
 #from pymilvus import MilvusClient
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, MatchAny
-# Langchain integreation
+## Langchain integreation
 #from langchain_milvus.vectorstores import Milvus
 from langchain_qdrant import QdrantVectorStore
 from langchain_qdrant import FastEmbedSparse, RetrievalMode
-# Rerank
+## Rerank
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import FlashrankRerank
-# LLM
+## LLM
 from langchain_ollama import ChatOllama
-# User query rewrite
-from langchain.retrievers.multi_query import MultiQueryRetriever
+## User query rewrite
+#from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import PromptTemplate
-# RRF
-from langchain.load import dumps, loads
+## RRF
+#from langchain.load import dumps, loads
 
 
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
-                       entry_id_col_name, chunked_entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
+                       entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
                        chunk_size, chunk_overlap,
                        device,
-                       vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank_flag,
+                       vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank,
                        sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
                        retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult,
                        llm_name, llm_temperature, query_prompt
@@ -513,11 +513,10 @@ class LangVdb:
         def _create_new_entries(entry):
             # Split the entry text
             splitted_text = text_splitter.split_text(entry[text_col_name])
-            # Create new entries with splitted text (while adding chunked_entry_id_col_name)
+            # Create new entries with splitted text (while combining entry_id and child_id as "entry_id.child_id")
             return [
                 {
-                    entry_id_col_name: entry[entry_id_col_name],
-                    chunked_entry_id_col_name: child_id,
+                    entry_id_col_name: f"{entry[entry_id_col_name]}.{child_id}",
                     date_col_name: entry[date_col_name], 
                     main_tags_col_name: entry[main_tags_col_name],
                     sub_tags_col_name: entry[sub_tags_col_name],
@@ -548,7 +547,6 @@ class LangVdb:
                     page_content=entry_dict[text_col_name], 
                     metadata={
                         entry_id_col_name: entry_dict[entry_id_col_name],
-                        chunked_entry_id_col_name: entry_dict[chunked_entry_id_col_name],
                         date_col_name: entry_dict[date_col_name], 
                         main_tags_col_name: entry_dict[main_tags_col_name],
                         sub_tags_col_name: entry_dict[sub_tags_col_name]
@@ -562,7 +560,6 @@ class LangVdb:
                     page_content=entries[text_col_name], 
                     metadata={
                         entry_id_col_name: entries[entry_id_col_name],
-                        chunked_entry_id_col_name: entries[chunked_entry_id_col_name],
                         date_col_name: entries[date_col_name], 
                         main_tags_col_name: entries[main_tags_col_name],
                         sub_tags_col_name: entries[sub_tags_col_name]
@@ -577,18 +574,7 @@ class LangVdb:
         # Convert entries to Document
         return LangVdb._texts_to_documents(splitted_formatted_entries)
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+
         
     @staticmethod
     def add_docs_to_vdb(user_id, vdb, docs:List):
@@ -648,14 +634,13 @@ class LangVdb:
     @staticmethod
     def _format_chunked_docs(user_id, chunked_docs:list, doc_date, main_tags, sub_tags):
 
-        for i, doc in enumerate(chunked_docs, start=1):
+        entry_id = YamlManagment._get_user_n_entry_id(user_id)            
+        # Actualize n entries in yaml
+        YamlManagment._increment_user_n_entry_id(user_id, 1)
             
-            entry_id = YamlManagment._get_user_n_entry_id(user_id)            
-            # Actualize n entries in yaml
-            YamlManagment._increment_user_n_entry_id(user_id, 1)
+        for i, doc in enumerate(chunked_docs, start=1):
             # Add metadata
-            doc.metadata[entry_id_col_name] = entry_id
-            doc.metadata[chunked_entry_id_col_name] = i
+            doc.metadata[entry_id_col_name] = f"{entry_id}.{i}"
             doc.metadata[date_col_name] = doc_date
             doc.metadata[main_tags_col_name] = main_tags
             doc.metadata[sub_tags_col_name] = sub_tags
@@ -723,18 +708,36 @@ class RAGentic():
     def __init__(self):
         self.llm = ChatOllama(
             model=llm_name,
-            temperature=0,
+            temperature=llm_temperature,
         )
-        
-
-    def retrieval(self, query, lang_vdb,  
+    
+    def _modify_llm_params(self, params:Dict): 
+        for param_name, param_value in params.items():
+            try:    
+                setattr(self.llm, param_name, param_value)
+            except Exception as e:
+                print(f"_modify_llm_params fail for param {param_name}: {e}")
+                
+    def retrieval(self, query, lang_vdb,
+                  llm_params:Dict=None,
                   filters:Dict={}, filter_strictness=filter_strictness_choices[0], 
-                  k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, rerank:Literal['flaskrank', 'fusion', False, None]=retrieval_rerank_flag, llm_query_rewrite:bool=True,
+                  k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
                   str_format_results:bool=True):
+
+        # Update llm params
+        if isinstance(llm_params, Dict) and llm_params:
+            self._modify_llm_params(llm_params)
         
         # Build initial search_kwargs
         search_kwargs = {'k': k_outputs}
-                
+        # kwargs specific to "similarity_score_threshold" and "mmr"
+        if search_type == "similarity_score_threshold":
+            search_kwargs['score_threshold'] = relevance_threshold
+        elif search_type == "mmr":
+            search_kwargs['fetch_k'] = mmr_fetch_k
+            search_kwargs['lambda_mult'] = mmr_lambda_mult     
+            
+        # Metadata embeddings filtering      
         if filters:
             # If there is filters value
             if any([value for key, value in filters.items()]):
@@ -744,39 +747,23 @@ class RAGentic():
                 # Add filter in search_kwargs
                 search_kwargs['filter'] = filters     
 
-        # kwargs specific to "similarity_score_threshold" and "mmr"
-        if search_type == "similarity_score_threshold":
-            search_kwargs['score_threshold'] = relevance_threshold
-        elif search_type == "mmr":
-            search_kwargs['fetch_k'] = mmr_fetch_k
-            search_kwargs['lambda_mult'] = mmr_lambda_mult       
-        
-
         # Get retrieval engine
         retriever = lang_vdb.as_retriever(
             search_type=search_type,
             search_kwargs=search_kwargs
             )
-        
-        if llm_query_rewrite:
-            retriever = self.get_multiquery_retriever(retriever)
-            
-        
-        if not rerank:
-            retrieved_docs = retriever.invoke(query) if not llm_query_rewrite else retriever.invoke(query)[:k_outputs-1]
-            print(retrieved_docs)
+       
+        # Get retriever results using reranking (flashrank or rag fusion)
+        if rerank:
+            reranked_docs = self.reranking(rerank, retriever, query)
+            retrieved_docs = self._get_k_best_results(reranked_docs, k_outputs) 
+        # Get retriever results
         else:
-            reranked_docs = self._reranking(rerank, retriever, query, k_outputs)
+            retrieved_docs = retriever.invoke(query)
 
+            
         print('DOCS:', self._retrieval_results_str_format(retrieved_docs))
-        
-        
-        
-        
-        DO MULTIQUERY FROM SCRATCH RATHER THAN USING THE RETRIEVER SO THAT IT IS EASY TO ONLY GET UNIUQUE DOCS IF NOT RERANKING, OR TO RERANK WITH RRF
-        
-        
-        
+            
         return self._retrieval_results_str_format(retrieved_docs) if str_format_results else retrieved_docs
 
     def _convert_filters_to_qdrant_filter(self, filters: Dict, filter_strictness:str) -> Union[Filter, None]:
@@ -816,6 +803,35 @@ class RAGentic():
             
         return Filter(must=must_conditions)
     
+
+    def _flashrank_reranking(self, base_retriever, query):
+        # Perform reranking with FlashRank
+        compressor = FlashrankRerank()
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=compressor, base_retriever=base_retriever
+        )       
+        retrieved_docs = compression_retriever.invoke(query)
+        return retrieved_docs
+    
+    def _reciprocal_ranking_fusion(self, multi_query_results: List[List], k=60):    
+        fused_scores, map_id_to_doc = {}, {}
+         
+        for docs in multi_query_results:
+            # Assumes the docs are returned in sorted order of relevance (as expected since we provide outputs of a retriever)
+            for rank, doc in enumerate(docs):
+                doc_id = doc.metadata[entry_id_col_name]
+                map_id_to_doc[doc_id] = doc
+                if doc_id not in fused_scores:
+                    fused_scores[doc_id] = 0
+                fused_scores[doc_id] += 1 / (rank + k)
+
+        reranked_docs = []
+        for doc_id, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True):
+            doc = map_id_to_doc[doc_id]
+            reranked_docs.append(doc)
+
+        return reranked_docs
+    
     def _get_multi_query_llm_chain(self):
         
         class LineQueryParser(BaseOutputParser[List[str]]):
@@ -823,61 +839,33 @@ class RAGentic():
                 def parse(self, text: str) -> List[str]:
                     lines = text.strip().split("\n")
                     return list(filter(None, lines))  # Remove empty lines
-
+        # llm output parser to generate queries
         query_parser = LineQueryParser()
-
+        # Multi query prompt for llm original query rewrite
         query_prompt_template = PromptTemplate(
-            input_variables=["question"],
+            input_variables=["original_query"],
             template=query_prompt,
         )
-
-        setattr(self.llm, 'temperature', 0.15)
-        # Chain
-        llm_query_chain = query_prompt_template | self.llm | query_parser
-        return llm_query_chain
+        # Chain to generate multi queries
+        llm_multi_query_chain = (
+            query_prompt_template | self.llm | query_parser
+        )
+        return llm_multi_query_chain
     
-    def get_multiquery_retriever(self, base_retriever):
-        # Build retriever that perform llm based rewritting of user' query to fetch better docs in VDB
-        # See https://python.langchain.com/v0.2/docs/how_to/MultiQueryRetriever/
-        return MultiQueryRetriever(
-            retriever=base_retriever, llm_chain=self._get_multi_query_llm_chain(), parser_key="lines"
-        )  # "lines" is the key (attribute name) of the parsed output
+    def _build_rag_fusion_chain(self, base_retriever):
+        return self._get_multi_query_llm_chain() | base_retriever.map() | self._reciprocal_ranking_fusion
         
+    def reranking(self, rerank:Literal['flashrank', 'rag_fusion'], base_retriever, query):
+        if rerank == 'flashrank':
+            return self._flashrank_reranking(base_retriever, query)
+            
+        elif rerank == 'rag_fusion':
+            rag_fusion_chain = self._build_rag_fusion_chain(base_retriever)
+            return rag_fusion_chain.invoke({"original_query": query})
+        
+    def _get_k_best_results(self, retrieved_docs, k_outputs):
+        return retrieved_docs[:k_outputs] if len(retrieved_docs) > k_outputs else retrieved_docs
     
-    def _reranking(self, rerank:Literal['flaskrank', 'fusion', False, None], base_retriever, query, k_outputs):
-        if rerank:
-            if rerank == 'flaskrank':
-                return self._flashrank_reranking(base_retriever, query, k_outputs)
-                
-            elif rerank == 'fusion':
-                return self._reciprocal_ranking_fusion()
-      
-    def _flashrank_reranking(self, base_retriever, query, k_outputs):
-        # Perform reranking with FlashRank
-        compressor = FlashrankRerank()
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=base_retriever
-        )       
-        retrieved_docs = compression_retriever.invoke(query)
-        return retrieved_docs[:k_outputs-1]  
-    
-    def __reciprocal_ranking_fusion(self, base_retriever, query, k_outputs):
-        retrieved_docs = base_retriever.invoke(query)
-    
-        fused_scores = {}
-        for docs in retrieved_docs:
-            # Assumes the docs are returned in sorted order of relevance
-            for rank, doc in enumerate(docs):
-                doc_str = dumps(doc)
-                if doc_str not in fused_scores:
-                    fused_scores[doc_str] = 0
-                fused_scores[doc_str] += 1 / (rank + k_outputs)
-
-        reranked_results = [
-            (loads(doc), score)
-            for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-        ]
-        return reranked_results
     
     def _retrieval_results_str_format(self, retrieved_docs):
  

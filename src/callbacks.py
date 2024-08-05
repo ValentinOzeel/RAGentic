@@ -275,11 +275,11 @@ def on_reset_filters(state, id, payload):
     state.filter_sub_tags = []
     
     
-def on_retrieval_query(state, id, payload):
+def on_retrieval_query(state, id, payload):    
     state.retrieval_results = state.RAGentic.retrieval(
         query= state.retrieval_query,
         lang_vdb= state.lang_user_vdb,
-        rerank= state.retrieval_rerank_flag,
+        rerank= False if state.retrieval_rerank.lower() == 'false' else state.retrieval_rerank.lower(),
         filters= {main_tags_col_name:state.retrieval_main_tags, sub_tags_col_name:state.retrieval_sub_tags},
         k_outputs= state.k_outputs_retrieval,
         search_type= state.retrieval_search_type if state.retrieval_search_type else retrieval_search_type,

@@ -23,7 +23,7 @@ from constants import (
     user_table, user_main_tags, user_sub_tags, filter_dates, filter_strictness_choices, filter_strictness, filter_main_tags, filter_sub_tags,
     entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, file_path_to_load, 
     pdf_date, pdf_tags_separator, pdf_main_tags, pdf_sub_tags, pdf_path_to_load,
-    lang_user_vdb, RAGentic, retrieval_query, k_outputs_retrieval, retrieval_rerank_flag, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results
+    lang_user_vdb, RAGentic, retrieval_query, k_outputs_retrieval, retrieval_rerank, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results
 )
 
 
@@ -181,8 +181,8 @@ with tgb.Page() as retrieve_data:
                      lov="{retrieval_filter_strictness_choices}", 
                      multiple=False, dropdown=True, label='Retrieval filter strictness')
         
-        tgb.selector(value="{retrieval_rerank_flag}", 
-                     lov=[(True, 'Use rerank'), (False, 'No rerank')], 
+        tgb.selector(value="{retrieval_rerank}", 
+                     lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
                      multiple=False, dropdown=True, label='Rerank usage')
 
         tgb.slider("{k_outputs_retrieval}", min=1, max=10, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(10)})
@@ -214,4 +214,6 @@ with tgb.Page() as retrieve_data:
 # LET USER CHOOSE LLM, TEMPERTURE, USE REWRITE USER PROMPT OR NOT
 # REWRITE USER  QUERY WITH LLM llm_query_rewrite MultiQuery : THEN REMOVE K OPUTPUT SELECTOR FROM THE PAGE
 #llm_query_rewrite = FALSE IN RETRIEVAL WHEN COMING FROM TANLE QUERY, OTHERWIZE LET USER CHOICE FOR RAG
+  #      DO MULTIQUERY FROM SCRATCH RATHER THAN USING THE RETRIEVER SO THAT IT IS EASY TO ONLY GET UNIUQUE DOCS IF NOT RERANKING, OR TO RERANK WITH RRF
+        
 #TABLE ADD FILTER KEYWORDS IN TEXT
