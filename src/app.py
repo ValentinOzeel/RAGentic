@@ -14,8 +14,6 @@ from pages import (
 from page_ids import page_ids
 
 
-
-
 if __name__ == "__main__":
     YamlManagment.create_cred_yaml_file()
 

@@ -229,14 +229,8 @@ mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diver
 # For langchain indexing
 sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
-
-# Query prompt for llm to rewrite user' query
-query_prompt = """You are an AI language model assistant. Your task is to generate five 
-            different versions of the given user query to retrieve relevant documents from a vector 
-            database. By generating multiple perspectives on the user query, your goal is to help
-            the user overcome some of the limitations of the distance-based similarity search. 
-            Provide these alternative questions separated by newlines.
-            Original query: {original_query}"""
+## RAG
+max_chat_history_tokens = 4000
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

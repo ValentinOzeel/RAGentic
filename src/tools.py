@@ -34,14 +34,21 @@ from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import FlashrankRerank
 ## LLM
 from langchain_ollama import ChatOllama
-## User query rewrite
+## Promps
 #from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts.chat import ChatPromptTemplate, MessagesPlaceholder
 ## RRF
 #from langchain.load import dumps, loads
-
-
+## Chat history
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import trim_messages
+from operator import itemgetter
+from langchain.schema import StrOutputParser
+## Messages
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
@@ -52,9 +59,10 @@ from constants import (credentials_yaml_path,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank,
                        sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
                        retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult,
-                       llm_name, llm_temperature, query_prompt
+                       llm_name, llm_temperature, max_chat_history_tokens
 )
-            
+
+from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, system_prompt_with_base_knowledge
             
 
 class YamlManagment():
@@ -710,7 +718,50 @@ class RAGentic():
             model=llm_name,
             temperature=llm_temperature,
         )
+        
+        # Chat history
+        self.chat_history = InMemoryChatMessageHistory()
+        self.chat_history_trimmer = trim_messages(
+                                max_tokens=max_chat_history_tokens,
+                                strategy="last",
+                                token_counter=self.llm,
+                                include_system=True,
+                                allow_partial=False,
+                                start_on="human",
+                            )
+        
+        self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", chat_history_contextualize_q_system_prompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{human_query}"),
+            ]
+        )
+        # Create the chain
+        self.chat_history_contextualize_q_chain = (
+            self.chat_history_contextualize_q_prompt
+            | self.llm
+            | StrOutputParser()
+        )
     
+    
+    
+        self.rag_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt_with_base_knowledge),
+                MessagesPlaceholder("retrieved_docs_rag_format"),
+                ("human", "{chat_history_contextualized_human_query}"),
+            ]
+        )
+        
+        self.rag_chain = (
+            self.rag_prompt
+            | self.llm 
+            | StrOutputParser()
+        )
+
+
+
     def _modify_llm_params(self, params:Dict): 
         for param_name, param_value in params.items():
             try:    
@@ -722,7 +773,7 @@ class RAGentic():
                   llm_params:Dict=None,
                   filters:Dict={}, filter_strictness=filter_strictness_choices[0], 
                   k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
-                  str_format_results:bool=True):
+                  format_results:Literal['str', 'rag', False, None]=False):
 
         # Update llm params
         if isinstance(llm_params, Dict) and llm_params:
@@ -764,7 +815,12 @@ class RAGentic():
             
         print('DOCS:', self._retrieval_results_str_format(retrieved_docs))
             
-        return self._retrieval_results_str_format(retrieved_docs) if str_format_results else retrieved_docs
+        if format_results == 'str':  
+            return self._retrieval_results_str_format(retrieved_docs) 
+        elif format_results == 'rag':
+            return self._retrieval_results_to_rag_format(retrieved_docs)
+        else:
+            return retrieved_docs
 
     def _convert_filters_to_qdrant_filter(self, filters: Dict, filter_strictness:str) -> Union[Filter, None]:
         
@@ -844,7 +900,7 @@ class RAGentic():
         # Multi query prompt for llm original query rewrite
         query_prompt_template = PromptTemplate(
             input_variables=["original_query"],
-            template=query_prompt,
+            template=multi_query_prompt ,
         )
         # Chain to generate multi queries
         llm_multi_query_chain = (
@@ -877,4 +933,42 @@ class RAGentic():
                     ]
                 )
     
+    def _retrieval_results_to_rag_format(self, retrieved_docs):
+        return "\n\n".join(
+                [
+                    f"Doc_ID: {doc.metadata[entry_id_col_name]}, Doc_content: {doc.page_content}"
+                    for doc in retrieved_docs
+            ]
+        )
+
     
+    
+    def _chat_history_contextualize_human_query(self, human_query):
+        # Trim the chat history before passing it to the chain
+        trimmed_history = self.chat_history_trimmer(self.chat_history.messages)
+        # Use self.history_contextualize_q_chain to generate new query
+        return self.chat_history_contextualize_q_chain.invoke({
+            "chat_history": trimmed_history,
+            "human_query": human_query
+        })
+        
+    
+    def _rag_query(self, history_contextualized_query, lang_vdb, ------====RETRIEVAL_PARAMSSSSSS):
+        
+        return self.rag_chain.invoke({
+            "retrieved_docs_rag": self.retrieval(history_contextualized_query, lang_vdb, RETRIEVAL_PARAMSSSSSS, format_results='rag'),
+            "chat_history_contextualized_human_query": history_contextualized_query
+        })
+        
+
+    
+    def send_user_msg_to_llm(self, human_query):
+
+
+        chat_history_contextualized_human_query = self._chat_history_contextualize_human_query()
+        
+        
+        ai_response = self._rag_query(PARAMMMMDS)   
+        
+         
+        self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])

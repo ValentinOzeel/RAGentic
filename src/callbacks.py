@@ -284,6 +284,6 @@ def on_retrieval_query(state, id, payload):
         k_outputs= state.k_outputs_retrieval,
         search_type= state.retrieval_search_type if state.retrieval_search_type else retrieval_search_type,
         filter_strictness= state.retrieval_filter_strictness,
-        str_format_results=True
+        format_results='str'
         )
     
