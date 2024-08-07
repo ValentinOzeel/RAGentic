@@ -52,7 +52,7 @@ from langchain_core.messages import AIMessage
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
-                       entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, text_col_name,
+                       entry_id_col_name, chunked_entry_id_col, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
                        chunk_size, chunk_overlap,
                        device,
@@ -139,7 +139,7 @@ class YamlManagment():
             yaml.dump(data, file)
 
     @staticmethod
-    def _add_user_pdf(user_id, pdf_file_name):
+    def _add_user_pdf(user_id, pdf_file_name, doc_id):
         # Load yaml credentials
         with open(credentials_yaml_path, 'r') as file:
             data = yaml.safe_load(file)  
@@ -148,15 +148,30 @@ class YamlManagment():
             data['user_loaded_pdfs'] = {}
         # Init user_loaded_pdfs for user_if if it doesnt exists already
         if not data['user_loaded_pdfs'].get(user_id, None):
-            data['user_loaded_pdfs'][user_id] = []
+            data['user_loaded_pdfs'][user_id] = {}
         # Append pdf file name
-        data['user_loaded_pdfs'][user_id].append(pdf_file_name)
+        data['user_loaded_pdfs'][user_id][doc_id] = pdf_file_name
         # Persist data in yaml
         with open(credentials_yaml_path, 'w') as file:
             yaml.dump(data, file)
 
+    @staticmethod
+    def get_user_pdf_names_ids(user_id):
+        # Load yaml credentials
+        with open(credentials_yaml_path, 'r') as file:
+            data = yaml.safe_load(file)  
 
+        return data['user_loaded_pdfs'][user_id]
 
+    @staticmethod
+    def get_entry_id_and_increment(user_id):
+        entry_id = YamlManagment._get_user_n_entry_id(user_id)            
+        # Actualize n entries in yaml
+        YamlManagment._increment_user_n_entry_id(user_id, 1)
+        return entry_id 
+            
+            
+            
                 
 class SignLog():
     ###                 ###               
@@ -168,7 +183,7 @@ class SignLog():
         return True if re.match(email_regex, email_input) else False
 
     @staticmethod
-    def send_email_as_verif(self):
+    def send_email_as_verif():
         #import smtplib
         #from email.mime.text import MIMEText
         #
@@ -193,6 +208,12 @@ class SignLog():
         #
         #send_email(subject, body, sender, recipients, password)
         pass
+
+
+
+
+
+
 
 
 class SQLiteManagment:
@@ -227,6 +248,7 @@ class SQLiteManagment:
                     {date_col_name} TEXT,
                     {main_tags_col_name} TEXT,
                     {sub_tags_col_name} TEXT,
+                    {doc_type_col_name} TEXT, 
                     {text_col_name} TEXT NOT NULL
                 )
             ''')
@@ -266,11 +288,12 @@ class SQLiteManagment:
                             single_entry.get(date_col_name, None),
                             single_entry.get(main_tags_col_name, None),
                             single_entry.get(sub_tags_col_name, None),
+                            single_entry.get(doc_type_col_name, None),
                             single_entry.get(text_col_name, None)
                         )
                         cursor.execute(f'''
-                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name})
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                         ''', values)
                         
                     elif multiple_entries:
@@ -281,13 +304,14 @@ class SQLiteManagment:
                                 entry.get(date_col_name, None),
                                 entry.get(main_tags_col_name, None),
                                 entry.get(sub_tags_col_name, None),
+                                entry.get(doc_type_col_name, None),
                                 entry.get(text_col_name, None)
                             )
                             for entry in multiple_entries if not ignore_if_empty(entry)
                         ]
                         cursor.executemany(f'''
-                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name})
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                         ''', entries_to_add)
                     conn.commit()
                 break  # Exit the retry loop if successful
@@ -306,19 +330,24 @@ class SQLiteManagment:
         try:
             with SQLiteManagment.get_db_connection() as conn:
                 query = f'''
-                    SELECT id as text_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {text_col_name} 
+                    SELECT id as text_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name} 
                     FROM entries 
                     WHERE user_id = ? 
                     ORDER BY id
                 '''
                 df = pd.read_sql_query(query, conn, params=(user_id,))
                 df[date_col_name] = pd.to_datetime(df[date_col_name], format='%m/%d/%Y')
-                df[main_tags_col_name] = df[main_tags_col_name].apply(lambda value: value.split(sqlite_tags_separator))
-                df[sub_tags_col_name] = df[sub_tags_col_name].apply(lambda value: value.split(sqlite_tags_separator))
+                df[main_tags_col_name] = df[main_tags_col_name].apply(lambda value: ' '.join(value.split(sqlite_tags_separator)))
+                df[sub_tags_col_name] = df[sub_tags_col_name].apply(lambda value: ' '.join(value.split(sqlite_tags_separator)))
                 return df
         except Exception as e:
             print(e)
             return None
+        
+
+
+
+        
         
         
 def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
@@ -334,6 +363,11 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
     whole_text = ' '.join([text for (bbox, text, prob) in result])
     
     return whole_text
+
+
+
+
+
 
 
 
@@ -375,6 +409,11 @@ class SentenceTransformersEmbeddings(Embeddings):
         return embeddings
 
 
+
+
+
+
+
 class LangVdb:
     _vdb : Literal['qdrant', 'milvus'] = vdb
     
@@ -398,17 +437,6 @@ class LangVdb:
         if LangVdb._vdb == 'qdrant':
             LangVdb._init_qdrant_collection(user_id)
 
-    #    elif LangVdb._vdb == 'milvus':
-    #        LangVdb._init_milvus_collection(user_id)
-
-    #@staticmethod
-    #def _init_milvus_collection(user_id):
-    #    if not MilvusClient(milvus_database_path).has_collection(collection_name=user_id):
-    #        MilvusClient(milvus_database_path).create_collection(
-    #            collection_name=user_id,
-    #            dimension=vector_dimensions,  # The dimension of vectors that will be stored
-    #        )
-
     @staticmethod
     def _init_qdrant_collection(user_id):
         if not QdrantClient(path=qdrant_database_path).collection_exists(collection_name=user_id):
@@ -417,26 +445,15 @@ class LangVdb:
                 vectors_config={"dense": VectorParams(size=vector_dimensions, distance=Distance.COSINE)},
                 sparse_vectors_config={"sparse": models.SparseVectorParams()}
             )  
-            
-            
+             
     @staticmethod
     def access_vdb(user_id):
         if LangVdb._vdb == 'qdrant':
             return LangVdb._access_qdrant_vdb(user_id)
             
-    #    elif LangVdb._vdb == 'milvus':
-    #        return LangVdb._access_milvus_vdb(user_id)
-        
-    #@staticmethod
-    #def _access_milvus_vdb(user_id):
-    #    return Milvus(
-    #        SentenceTransformersEmbeddings(),
-    #        connection_args={"uri": milvus_database_path},
-    #        collection_name=user_id,
-    #    )
-        
     @staticmethod
     def _access_qdrant_vdb(user_id):
+        
         vector_store_params = {
             'path': qdrant_database_path,
             'collection_name':user_id,
@@ -451,28 +468,41 @@ class LangVdb:
             LangVdb._initialize_vdb_collection(user_id)
         return QdrantVectorStore.from_existing_collection(**vector_store_params)
         
+        
+        
+        
+    ### TEXT ENTRY HANDLER ###
+    ### TEXT ENTRY HANDLER ###
+    ### TEXT ENTRY HANDLER ###
+    
     @staticmethod
-    def format_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
+    def format_text_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
+        """
+        FORMAT SINGLE ENTRY (USER TEXT) TO SQL OR VDB FORMAT
+        """
         if format == 'sqlite':
             main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
             sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
 
-
-        entry_id = YamlManagment._get_user_n_entry_id(user_id)            
-        # Actualize n entries in yaml
-        YamlManagment._increment_user_n_entry_id(user_id, 1)
+        # Get doc's id and increment
+        entry_id = YamlManagment.get_entry_id_and_increment(user_id)
 
         return {     
             entry_id_col_name: entry_id,   
+            chunked_entry_id_col: f"{entry_id}.0",
             date_col_name: text_date,
             main_tags_col_name: main_tags,
             sub_tags_col_name: sub_tags,
+            doc_type_col_name: 'text',
             text_col_name: text_entry,
         }
 
     @staticmethod
     def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
                                       format:Literal['sqlite', 'vdb']='sqlite'):
+        """
+        FORMAT ENTRIES (USER TEXT) FROM TEXT FILE TO SQL OR VDB FORMAT
+        """
         def _process_entry(entry):
             date, text = '', ''
             main_tags, sub_tags = [], []
@@ -500,10 +530,10 @@ class LangVdb:
                  # Format tags to sqlite (string) 
                 main_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
                 sub_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else sub_tags
-                return LangVdb.format_entry(user_id, date, main_tags_str, sub_tags_str, text, format=format)
+                return LangVdb.format_text_entry(user_id, date, main_tags_str, sub_tags_str, text, format=format)
             # Retain lsit format otherwise
             else:
-                return LangVdb.format_entry(user_id, date, main_tags, sub_tags, text, format=format)
+                return LangVdb.format_text_entry(user_id, date, main_tags, sub_tags, text, format=format)
 
 
         # Open and read the file
@@ -517,6 +547,16 @@ class LangVdb:
 
 
     @staticmethod
+    def formatted_text_entries_to_docs(formatted_entries:List):
+        """
+        CONVERT VDB FORMATTED TEXT ENTRIES TO DOCUMENTS
+        """
+        # Split text and create corresponding entries (and chunked_entry_id)
+        splitted_formatted_entries = LangVdb._recursively_split_formatted_entries(formatted_entries)
+        # Convert entries to Document
+        return LangVdb._texts_to_documents(splitted_formatted_entries)
+    
+    @staticmethod
     def _recursively_split_formatted_entries(entries):
         def _create_new_entries(entry):
             # Split the entry text
@@ -524,10 +564,12 @@ class LangVdb:
             # Create new entries with splitted text (while combining entry_id and child_id as "entry_id.child_id")
             return [
                 {
-                    entry_id_col_name: f"{entry[entry_id_col_name]}.{child_id}",
+                    entry_id_col_name: entry[entry_id_col_name],
+                    chunked_entry_id_col: f"{entry[entry_id_col_name]}.{child_id}",
                     date_col_name: entry[date_col_name], 
                     main_tags_col_name: entry[main_tags_col_name],
                     sub_tags_col_name: entry[sub_tags_col_name],
+                    doc_type_col_name: entry[doc_type_col_name],
                     text_col_name: text
                 } for child_id, text in enumerate(splitted_text, start=1)
             ] 
@@ -555,9 +597,11 @@ class LangVdb:
                     page_content=entry_dict[text_col_name], 
                     metadata={
                         entry_id_col_name: entry_dict[entry_id_col_name],
+                        chunked_entry_id_col: entry_dict[chunked_entry_id_col],
                         date_col_name: entry_dict[date_col_name], 
                         main_tags_col_name: entry_dict[main_tags_col_name],
-                        sub_tags_col_name: entry_dict[sub_tags_col_name]
+                        sub_tags_col_name: entry_dict[sub_tags_col_name],
+                        doc_type_col_name: entry_dict[doc_type_col_name]
                         }
                     ) for entry_dict in entries
                 ] if entries else None
@@ -568,48 +612,43 @@ class LangVdb:
                     page_content=entries[text_col_name], 
                     metadata={
                         entry_id_col_name: entries[entry_id_col_name],
+                        chunked_entry_id_col: entries[chunked_entry_id_col],
                         date_col_name: entries[date_col_name], 
                         main_tags_col_name: entries[main_tags_col_name],
-                        sub_tags_col_name: entries[sub_tags_col_name]
+                        sub_tags_col_name: entries[sub_tags_col_name],
+                        doc_type_col_name: entries[doc_type_col_name]
                         }
                     )
             ] if entries.get(text_col_name, None) else None
 
-    @staticmethod
-    def entries_to_docs(formatted_entries:List):
-        # Split text and create corresponding entries (and chunked_entry_id)
-        splitted_formatted_entries = LangVdb._recursively_split_formatted_entries(formatted_entries)
-        # Convert entries to Document
-        return LangVdb._texts_to_documents(splitted_formatted_entries)
-        
 
         
-    @staticmethod
-    def add_docs_to_vdb(user_id, vdb, docs:List):
 
-        # Add document in vector database
-        if docs:
-            ## Add documents in vector store
-            #vdb.add_documents(documents=documents_entries)
-            
-            namespace = f"{LangVdb._vdb}/{user_id}"
-            record_manager = SQLRecordManager(
-                namespace, db_url=sql_record_manager_path
-            )
-            record_manager.create_schema()
+    ### PDF HANDLER ###
+    ### PDF HANDLER ###
+    ### PDF HANDLER ###
+    
+    @staticmethod
+    def pdf_to_db(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags, vdb_add=True, sqlite_add=True):
+        """
+        CONVERT PDF FILE TO DOCUMENT ENTRIES AND INDEX THESE IN VECTOR DATABASE
+        """
+        # Parse pdf and get chunked documents
+        chunked_docs = LangVdb._parse_PDF(pdf_path)
+        # Get doc's id and increment
+        doc_id = YamlManagment.get_entry_id_and_increment(user_id)
+        # Format documents
+        docs = LangVdb._format_chunked_docs(doc_id, chunked_docs, pdf_date, main_tags, sub_tags, doc_type = 'pdf')
+        # Index in vdb
+        if vdb_add:
+            LangVdb._index_docs_to_vdb(user_id, vdb, docs)
+        # Add in sqlite
+        if sqlite_add:
+            LangVdb._docs_to_sqlite(user_id, docs)
+        # Add pdf in yml user's pdf list
+        YamlManagment._add_user_pdf(user_id, os.path.basename(pdf_path), doc_id)
         
-            # Index documents in vector store
-            index(
-                docs,
-                record_manager,
-                vdb,
-                cleanup="incremental",
-                source_id_key=entry_id_col_name,
-            )
- 
-    
-    
-    
+
     @staticmethod
     def _parse_PDF(pdf_path, parser_type:str = 'llama_parse'):
         
@@ -639,12 +678,10 @@ class LangVdb:
         except Exception as e:
             print(f"_parse_PDF fail: {e}")
 
-    @staticmethod
-    def _format_chunked_docs(user_id, chunked_docs:list, doc_date, main_tags, sub_tags):
 
-        entry_id = YamlManagment._get_user_n_entry_id(user_id)            
-        # Actualize n entries in yaml
-        YamlManagment._increment_user_n_entry_id(user_id, 1)
+    
+    @staticmethod
+    def _format_chunked_docs(entry_id, chunked_docs:list, doc_date, main_tags, sub_tags, doc_type):
             
         for i, doc in enumerate(chunked_docs, start=1):
             # Add metadata
@@ -652,6 +689,7 @@ class LangVdb:
             doc.metadata[date_col_name] = doc_date
             doc.metadata[main_tags_col_name] = main_tags
             doc.metadata[sub_tags_col_name] = sub_tags
+            doc.metadata[doc_type_col_name] = doc_type
 
         return chunked_docs
 
@@ -685,25 +723,41 @@ class LangVdb:
         ]
         SQLiteManagment.add_entry_to_sqlite(user_id, multiple_entries=list_entries)
 
-     
+
+
+
+        
+    ### DOCUMENTS INDEXING IN VDB ###
+    ### DOCUMENTS INDEXING IN VDB ###
+    ### DOCUMENTS INDEXING IN VDB ###
+
     @staticmethod
-    def pdf_to_db(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags, vdb_add=True, sqlite_add=True):
+    def add_docs_to_vdb(user_id, vdb, docs:List):
+        """
+        INDEX DOCUMENTS IN VECTOR DATABASE
+        """
+        if docs:
+            ## Add documents in vector store
+            #vdb.add_documents(documents=documents_entries)
+            
+            namespace = f"{LangVdb._vdb}/{user_id}"
+            record_manager = SQLRecordManager(
+                namespace, db_url=sql_record_manager_path
+            )
+            record_manager.create_schema()
         
-        # Parse pdf and get chunked documents
-        chunked_docs = LangVdb._parse_PDF(pdf_path)
-        # Format documents
-        docs = LangVdb._format_chunked_docs(user_id, chunked_docs, pdf_date, main_tags, sub_tags)
-        # Index in vdb
-        if vdb_add:
-            LangVdb._index_docs_to_vdb(user_id, vdb, docs)
-        # Add in sqlite
-        if sqlite_add:
-            LangVdb._docs_to_sqlite(user_id, docs)
-        # Add pdf in yml user's pdf list
-        YamlManagment._add_user_pdf(user_id, os.path.basename(pdf_path))
-        
-
-
+            # Index documents in vector store
+            index(
+                docs,
+                record_manager,
+                vdb,
+                cleanup="incremental",
+                source_id_key=entry_id_col_name,
+            )
+ 
+ 
+ 
+ 
 
 #RAG:
 #KEEP TRACK OF LOADED PDF FOR ADD FILTER "filename" in RAG
@@ -771,8 +825,8 @@ class RAGentic():
                 
     def retrieval(self, query, lang_vdb,
                   llm_params:Dict=None,
-                  filters:Dict={}, filter_strictness=filter_strictness_choices[0], 
-                  k_outputs:int=k_outputs_retrieval, search_type:str=retrieval_search_type, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
+                  search_type:str=retrieval_search_type, k_outputs:int=k_outputs_retrieval, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
+                  filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
                   format_results:Literal['str', 'rag', False, None]=False):
 
         # Update llm params
@@ -834,7 +888,7 @@ class RAGentic():
             return None
         
         # For now we only add filter for main_tags and sub_tags (which are lists)
-        available_filters = [main_tags_col_name, sub_tags_col_name]
+        available_filters = [main_tags_col_name, sub_tags_col_name, entry_id_col_name]
         must_conditions = []
         
         
@@ -953,22 +1007,32 @@ class RAGentic():
         })
         
     
-    def _rag_query(self, history_contextualized_query, lang_vdb, ------====RETRIEVAL_PARAMSSSSSS):
+    def _rag_query(self, history_contextualized_query, lang_vdb, llm_params, retrieval_params):
         
         return self.rag_chain.invoke({
-            "retrieved_docs_rag": self.retrieval(history_contextualized_query, lang_vdb, RETRIEVAL_PARAMSSSSSS, format_results='rag'),
+            "retrieved_docs_rag": self.retrieval(
+                history_contextualized_query, 
+                lang_vdb, 
+                llm_params=llm_params, 
+                **retrieval_params
+            ),
             "chat_history_contextualized_human_query": history_contextualized_query
         })
         
 
     
-    def send_user_msg_to_llm(self, human_query):
+    def send_user_query_to_rag(self, lang_vdb, human_query, llm_params, retrieval_params):
 
 
-        chat_history_contextualized_human_query = self._chat_history_contextualize_human_query()
+        chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
         
         
-        ai_response = self._rag_query(PARAMMMMDS)   
+        ai_response = self._rag_query(
+            chat_history_contextualized_human_query,
+            lang_vdb,
+            llm_params,
+            retrieval_params
+        )   
         
          
         self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])

@@ -8,7 +8,8 @@ pages_names = [
     'root_page', 
     'chose_task',
     'manage_data',
-    'retrieve_data'
+    'retrieve_data',
+    'rag_app'
 ]
 
 ######## PAGE ID BUILDER ########

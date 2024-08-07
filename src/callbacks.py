@@ -4,7 +4,11 @@ from taipy.gui import navigate, notify
 import os
 import pandas as pd
 
-from constants import notify_duration, date_col_name, main_tags_col_name, sub_tags_col_name, filter_strictness_choices, retrieval_search_type
+from constants import (
+    notify_duration, 
+    entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, 
+    filter_strictness_choices, retrieval_search_type, rag_retrieval_search_type
+    )
 from page_ids import page_ids
 from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb, RAGentic
 
@@ -82,6 +86,8 @@ def on_login(state, id, login_args):
         state = _get_user_tags(state)
         # Access vdb collection
         state.lang_user_vdb = lvdb.access_vdb(state.user_email)
+        # Access user's pdfs
+        state.user_pdf_names_ids = lvdb.get_user_pdf_names_ids(state.user_email)
         # Initiate RAGentic objet in state
         state.RAGentic = RAGentic()
         notify(state, 'success', 'Successful authentification.')
@@ -89,7 +95,7 @@ def on_login(state, id, login_args):
     
 
     
-def on_data_entry_add(state, action, info):   
+def on_text_entry_add(state, action, info):   
     if not state.text_entry:
         notify(state,'error', 'You must at least fill the text field (indicated with an *).')
     
@@ -102,13 +108,13 @@ def on_data_entry_add(state, action, info):
     # Add entry in sqlite
     sm.add_entry_to_sqlite(
         state.user_email, 
-        single_entry=lvdb.format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
+        single_entry=lvdb.format_text_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
         )
     # Add embedded entry in vdb
     lvdb.add_docs_to_vdb(
         state.user_email,
         state.lang_user_vdb, 
-        docs = lvdb.entries_to_docs(lvdb.format_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='vdb'))
+        docs = lvdb.formatted_text_entries_to_docs(lvdb.format_text_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='vdb'))
         )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
@@ -160,7 +166,7 @@ def on_txt_file_load(state, id, payload):
         lvdb.add_docs_to_vdb(
             state.user_email,
             state.lang_user_vdb, 
-            docs = lvdb.entries_to_docs(lvdb.txt_file_to_formatted_entries(**format_kwargs, format='vdb'))
+            docs = lvdb.formatted_text_entries_to_docs(lvdb.txt_file_to_formatted_entries(**format_kwargs, format='vdb'))
             )
     
         # upadte table
@@ -208,7 +214,8 @@ def on_pdf_file_load(state, id, payload):
         # Delete loaded file
         _delete_loaded_file(state.pdf_path_to_load)
         state.pdf_path_to_load = ''
-
+        # Update user's pdfs
+        state.user_pdf_names_ids = lvdb.get_user_pdf_names_ids(state.user_email)
         # Notify success
         notify(state, 'success', 'PDF added to databases.', duration=notify_duration)
         
@@ -286,4 +293,41 @@ def on_retrieval_query(state, id, payload):
         filter_strictness= state.retrieval_filter_strictness,
         format_results='str'
         )
+    
+
+def on_rag_input(state, id, payload):
+    
+    filters = {
+            main_tags_col_name:state.rag_retrieval_main_tags, 
+            sub_tags_col_name:state.rag_retrieval_sub_tags, 
+            doc_type_col_name: ['pdf', 'text'] if state.rag_considered_docs == 'all' else state.rag_considered_docs, 
+            entry_id_col_name:[ym.get_user_pdf_names_ids(state.user_email)[pdf_name] for pdf_name in state.rag_considered_pdfs] if state.rag_considered_docs == 'pdf' else None
+        }
+                 
+    llm_params = {
+        'model': state.llm_name,
+        'temperature': state.llm_temperature
+    }
+    
+    retrieval_params = {
+        'lang_vdb': state.lang_user_vdb,
+        'search_type': state.rag_retrieval_search_type if state.rag_retrieval_search_type else rag_retrieval_search_type,
+        'k_outputs': state.rag_k_outputs_retrieval,
+        'rerank': False if state.rag_retrieval_rerank.lower() == 'false' else state.rag_retrieval_rerank.lower(),
+        'filter_strictness': state.rag_retrieval_filter_strictness,
+        'filters': filters,
+        'format_results':'rag'
+    }
+    
+    
+    state.RAGentic.send_user_query_to_rag(
+        state.lang_user_vdb,
+        state.rag_current_user_query,
+        llm_params,
+        retrieval_params
+    )
+    
+            
+
+    
     

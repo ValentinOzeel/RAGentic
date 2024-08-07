@@ -5,7 +5,7 @@ from taipy.gui import Icon
 
 from callbacks import (
             on_login, on_sign_in,
-            on_data_entry_add,
+            on_text_entry_add,
             on_image_to_text,
             on_txt_file_load,
             on_pdf_file_load,
@@ -22,8 +22,9 @@ from constants import (
     image_to_text_languages, image_to_text_cpu_or_gpu, selected_languages, selected_image_paths, image_to_text_output,
     user_table, user_main_tags, user_sub_tags, filter_dates, filter_strictness_choices, filter_strictness, filter_main_tags, filter_sub_tags,
     entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, file_path_to_load, 
-    pdf_date, pdf_tags_separator, pdf_main_tags, pdf_sub_tags, pdf_path_to_load,
-    lang_user_vdb, RAGentic, retrieval_query, k_outputs_retrieval, retrieval_rerank, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results
+    pdf_date, pdf_tags_separator, pdf_main_tags, pdf_sub_tags, pdf_path_to_load, user_pdf_names_ids,
+    lang_user_vdb, RAGentic, retrieval_query, k_outputs_retrieval, retrieval_rerank, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results,
+    rag_considered_docs_choices, rag_considered_docs, rag_considered_pdfs
 )
 
 
@@ -99,7 +100,7 @@ with tgb.Page() as manage_data:
         tgb.input("{main_tags}", label='Main tags')
         tgb.input("{sub_tags}", label='Sub tags')
         tgb.input("{text_entry}", label='Text to add*')
-        tgb.button("Add data entry", on_action=on_data_entry_add)
+        tgb.button("Add data entry", on_action=on_text_entry_add)
     
     tgb.text("## Image to text conversion.", mode="md")
     with tgb.layout("1 1 1"):
@@ -193,7 +194,7 @@ with tgb.Page() as retrieve_data:
         
         tgb.selector(value="{retrieval_sub_tags}", 
                      lov="{user_sub_tags}", 
-                     multiple=True, dropdown=True, label='Retrieval sub tag filter',)
+                     multiple=True, dropdown=True, label='Retrieval sub tag filter')
         
     with tgb.layout("1 1 1"):
         
@@ -205,15 +206,61 @@ with tgb.Page() as retrieve_data:
         
     tgb.text('{retrieval_results}', mode='pre')
     
+  
+with tgb.Page() as rag_app:
+    with tgb.layout("1 2"):
+        with tgb.part("1"):
+            # This part acts like a sidebar
+            tgb.text("## RAG Parameters", mode="md")
+            
+            tgb.selector(value="{llm_name}", 
+                         lov="{ollama_llms}", 
+                         multiple=False, dropdown=True, label='LLM used')
+            
+            tgb.indicator("LLM temperature", value="{llm_temperature}", min="0", max="1")
+            
+            
+            tgb.selector(value="{rag_considered_docs}", 
+                         lov="{rag_considered_docs_choices}", 
+                         multiple=False, dropdown=True, label='Documents considered')
+            
+            if rag_considered_docs == 'PDFs':
+                tgb.selector(value="{rag_considered_pdfs}", 
+                             lov="{user_pdf_names_ids.keys()}", 
+                             multiple=True, dropdown=True, label='PDFs considered')
+
+            tgb.selector(value="{rag_retrieval_search_type}", 
+                         lov=retrieval_search_type_possibilities, 
+                         multiple=False, dropdown=True, label='Retrieval search type')
+
+            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=10, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(10)})
+            
+            tgb.selector(value="{rag_retrieval_rerank}", 
+                         lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
+                         multiple=False, dropdown=True, label='Rerank usage')
+
+            tgb.selector(value="{rag_retrieval_filter_strictness}", 
+                         lov="{retrieval_filter_strictness_choices}", 
+                         multiple=False, dropdown=True, label='Retrieval filter strictness')
+
+            tgb.selector(value="{rag_retrieval_main_tags}", 
+                         lov="{user_main_tags}", 
+                         multiple=True, dropdown=True, label='Retrieval main tag filter')
+
+            tgb.selector(value="{rag_retrieval_sub_tags}", 
+                         lov="{user_sub_tags}", 
+                         multiple=True, dropdown=True, label='Retrieval sub tag filter')
+
+        with tgb.part("2"):
+            # Main content
+            tgb.text("## RAG app:", mode="md")
+            tgb.table("{rag_conversation_table}", editable=False, width=100, show_all=True)  
+            tgb.input("{rag_current_user_query}", label='Enter your message here...')
     
     
-#    
-#NEW PAGE FOR RAG (BASED ON USER'S TEXTS OR PDF FILES')
-#LET USER LOAD NEW PDFs OR CHOOSE IN PREVIOUS PDFs
+
+                      
 #
 # LET USER CHOOSE LLM, TEMPERTURE, USE REWRITE USER PROMPT OR NOT
-# REWRITE USER  QUERY WITH LLM llm_query_rewrite MultiQuery : THEN REMOVE K OPUTPUT SELECTOR FROM THE PAGE
-#llm_query_rewrite = FALSE IN RETRIEVAL WHEN COMING FROM TANLE QUERY, OTHERWIZE LET USER CHOICE FOR RAG
-  #      DO MULTIQUERY FROM SCRATCH RATHER THAN USING THE RETRIEVER SO THAT IT IS EASY TO ONLY GET UNIUQUE DOCS IF NOT RERANKING, OR TO RERANK WITH RRF
-        
+
 #TABLE ADD FILTER KEYWORDS IN TEXT

@@ -24,9 +24,11 @@ text_entry = ''
 user_table = pd.DataFrame()
 retrieval_data = pd.DataFrame()
 entry_id_col_name = 'entry_id'
+chunked_entry_id_col = 'chunked_entry_id'
 date_col_name = 'text_date'
 main_tags_col_name = 'main_tags'
 sub_tags_col_name = 'sub_tags'
+doc_type_col_name = 'doc_type'
 text_col_name = 'text_entry'
 filter_dates = [None, None]
 user_main_tags = []
@@ -67,6 +69,7 @@ pdf_tags_separator = '//'
 pdf_main_tags = ''
 pdf_sub_tags = ''
 pdf_path_to_load = ''
+user_pdf_names_ids = {}
                 
 ###                                ###               
 ###   Language for image to text   ###
@@ -231,6 +234,19 @@ sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
 ## RAG
 max_chat_history_tokens = 4000
+
+rag_conversation_table = None
+rag_current_user_query = ''
+rag_considered_docs_choices = ['pdf', 'text', 'all']
+rag_considered_docs = 'All'
+rag_considered_pdfs = []
+
+rag_retrieval_search_type = retrieval_search_type_possibilities[0]
+rag_retrieval_filter_strictness = retrieval_filter_strictness_choices[0]
+rag_retrieval_rerank = 'flashrank'
+rag_k_outputs_retrieval = 3
+rag_retrieval_main_tags = []
+rag_retrieval_sub_tags = []
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
