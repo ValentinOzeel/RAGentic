@@ -9,7 +9,7 @@ pages_names = [
     'chose_task',
     'manage_data',
     'retrieve_data',
-    'rag_app'
+    'rag'
 ]
 
 ######## PAGE ID BUILDER ########

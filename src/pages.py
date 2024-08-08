@@ -13,6 +13,7 @@ from callbacks import (
             on_filter_tags,
             on_reset_filters,
             on_retrieval_query,
+            on_rag_input
         )
 
 from page_ids import page_ids
@@ -24,7 +25,8 @@ from constants import (
     entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, file_path_to_load, 
     pdf_date, pdf_tags_separator, pdf_main_tags, pdf_sub_tags, pdf_path_to_load, user_pdf_names_ids,
     lang_user_vdb, RAGentic, retrieval_query, k_outputs_retrieval, retrieval_rerank, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results,
-    rag_considered_docs_choices, rag_considered_docs, rag_considered_pdfs
+    ollama_llms, llm_name, llm_temperature, rag_considered_docs_choices, rag_considered_docs, rag_considered_pdfs, rag_retrieval_search_type, rag_k_outputs_retrieval, rag_retrieval_rerank, rag_retrieval_filter_strictness, rag_retrieval_main_tags, rag_retrieval_sub_tags,
+    rag_conversation_table, rag_current_user_query
 )
 
 
@@ -81,7 +83,8 @@ with tgb.Page() as root_page:
              lov=[
                  ('/'+page_ids['chose_task'], '---'),
                  ('/'+page_ids['retrieve_data'], Icon('/images/data_retrieval.png', 'Retrieve tagged data')),
-                 ('/'+page_ids['manage_data'], Icon('/images/data_managment.png', 'Manage your data')), 
+                 ('/'+page_ids['manage_data'], Icon('/images/data_managment.png', 'Manage your data')),
+                 ('/'+page_ids['rag'], Icon('/images/rag.png', 'RAG')),  
                 ]
              )
     
@@ -207,8 +210,8 @@ with tgb.Page() as retrieve_data:
     tgb.text('{retrieval_results}', mode='pre')
     
   
-with tgb.Page() as rag_app:
-    with tgb.layout("1 2"):
+with tgb.Page() as rag:
+    with tgb.layout("1 1 2"):
         with tgb.part("1"):
             # This part acts like a sidebar
             tgb.text("## RAG Parameters", mode="md")
@@ -217,14 +220,16 @@ with tgb.Page() as rag_app:
                          lov="{ollama_llms}", 
                          multiple=False, dropdown=True, label='LLM used')
             
-            tgb.indicator("LLM temperature", value="{llm_temperature}", min="0", max="1")
+            tgb.slider("{llm_temperature}", min=0, max=1, step=0.05, hover_text='LLM temperature', width=200, labels={n:n for n in range(0, 1)})
+            #tgb.indicator('LLM temperature', value="{llm_temperature}", min="0.0", max="1.0")
             
+            tgb.text("  \n\n  ", mode="md")
             
             tgb.selector(value="{rag_considered_docs}", 
                          lov="{rag_considered_docs_choices}", 
                          multiple=False, dropdown=True, label='Documents considered')
             
-            if rag_considered_docs == 'PDFs':
+            if rag_considered_docs == 'pdf':
                 tgb.selector(value="{rag_considered_pdfs}", 
                              lov="{user_pdf_names_ids.keys()}", 
                              multiple=True, dropdown=True, label='PDFs considered')
@@ -233,7 +238,7 @@ with tgb.Page() as rag_app:
                          lov=retrieval_search_type_possibilities, 
                          multiple=False, dropdown=True, label='Retrieval search type')
 
-            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=10, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(10)})
+            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=10, step=1, hover_text='n retrieval outputs', width=200, labels={n+1:n+1 for n in range(10)})
             
             tgb.selector(value="{rag_retrieval_rerank}", 
                          lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
@@ -251,11 +256,14 @@ with tgb.Page() as rag_app:
                          lov="{user_sub_tags}", 
                          multiple=True, dropdown=True, label='Retrieval sub tag filter')
 
+        with tgb.part("1"):
+            tgb.text("   ", mode="text")  
+            
         with tgb.part("2"):
             # Main content
             tgb.text("## RAG app:", mode="md")
             tgb.table("{rag_conversation_table}", editable=False, width=100, show_all=True)  
-            tgb.input("{rag_current_user_query}", label='Enter your message here...')
+            tgb.input("{rag_current_user_query}", label='Enter your message here...', on_action=on_rag_input)
     
     
 

@@ -10,6 +10,7 @@ from pages import (
     chose_task,
     manage_data, 
     retrieve_data, 
+    rag
     )
 from page_ids import page_ids
 
@@ -28,7 +29,8 @@ if __name__ == "__main__":
         page_ids["root_page"]: root_page,
         page_ids["chose_task"]: chose_task,
         page_ids["manage_data"]: manage_data,
-        page_ids["retrieve_data"]: retrieve_data
+        page_ids["retrieve_data"]: retrieve_data,
+        page_ids["rag"]: rag
     }
 
 

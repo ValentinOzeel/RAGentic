@@ -81,7 +81,10 @@ class YamlManagment():
         ''' 
         # Load yaml creadentials
         with open(credentials_yaml_path, 'r') as file:
-            data = yaml.safe_load(file)  
+            data = yaml.safe_load(file) 
+        # Create user_creds dict if doesnt exist
+        if not data or not data.get('user_creds', None):
+            data = {'user_creds': {}} 
         # Check if provided email already exists
         if email in data['user_creds']:
             return False
@@ -160,8 +163,9 @@ class YamlManagment():
         # Load yaml credentials
         with open(credentials_yaml_path, 'r') as file:
             data = yaml.safe_load(file)  
-
-        return data['user_loaded_pdfs'][user_id]
+        if not data.get('user_loaded_pdfs', None):
+            data['user_loaded_pdfs'] = {}
+        return data['user_loaded_pdfs'].get(user_id, None)
 
     @staticmethod
     def get_entry_id_and_increment(user_id):
@@ -775,14 +779,6 @@ class RAGentic():
         
         # Chat history
         self.chat_history = InMemoryChatMessageHistory()
-        self.chat_history_trimmer = trim_messages(
-                                max_tokens=max_chat_history_tokens,
-                                strategy="last",
-                                token_counter=self.llm,
-                                include_system=True,
-                                allow_partial=False,
-                                start_on="human",
-                            )
         
         self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
             [
@@ -996,10 +992,19 @@ class RAGentic():
         )
 
     
-    
+    def _trim_chat_history(self, chat_history=None):
+        return trim_messages(
+                max_tokens=chat_history if chat_history else self.chat_history.messages,
+                strategy="last",
+                token_counter=self.llm,
+                include_system=True,
+                allow_partial=False,
+                start_on="human",
+            )
+        
     def _chat_history_contextualize_human_query(self, human_query):
         # Trim the chat history before passing it to the chain
-        trimmed_history = self.chat_history_trimmer(self.chat_history.messages)
+        trimmed_history = self._trim_chat_history()
         # Use self.history_contextualize_q_chain to generate new query
         return self.chat_history_contextualize_q_chain.invoke({
             "chat_history": trimmed_history,
@@ -1036,3 +1041,5 @@ class RAGentic():
         
          
         self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])
+        
+        return ai_response

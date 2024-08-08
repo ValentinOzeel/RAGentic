@@ -87,7 +87,7 @@ def on_login(state, id, login_args):
         # Access vdb collection
         state.lang_user_vdb = lvdb.access_vdb(state.user_email)
         # Access user's pdfs
-        state.user_pdf_names_ids = lvdb.get_user_pdf_names_ids(state.user_email)
+        state.user_pdf_names_ids = ym.get_user_pdf_names_ids(state.user_email)
         # Initiate RAGentic objet in state
         state.RAGentic = RAGentic()
         notify(state, 'success', 'Successful authentification.')
@@ -215,7 +215,7 @@ def on_pdf_file_load(state, id, payload):
         _delete_loaded_file(state.pdf_path_to_load)
         state.pdf_path_to_load = ''
         # Update user's pdfs
-        state.user_pdf_names_ids = lvdb.get_user_pdf_names_ids(state.user_email)
+        state.user_pdf_names_ids = ym.get_user_pdf_names_ids(state.user_email)
         # Notify success
         notify(state, 'success', 'PDF added to databases.', duration=notify_duration)
         
@@ -320,12 +320,14 @@ def on_rag_input(state, id, payload):
     }
     
     
-    state.RAGentic.send_user_query_to_rag(
+    ai_response = state.RAGentic.send_user_query_to_rag(
         state.lang_user_vdb,
         state.rag_current_user_query,
         llm_params,
         retrieval_params
     )
+    
+    print(ai_response)
     
             
 

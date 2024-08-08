@@ -203,7 +203,7 @@ ollama_llms = [
 ]
 
 llm_name = 'llama3.1'
-llm_temperature = 0.15
+llm_temperature = "0.15"
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
