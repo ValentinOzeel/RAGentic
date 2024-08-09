@@ -12,6 +12,29 @@ from constants import (
 from page_ids import page_ids
 from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb, RAGentic
 
+
+def style_rag(state, idx: int, row: int) -> str:
+    """
+    Apply a style to the conversation table depending on the message's author.
+
+    Args:
+        - state: The current state of the app.
+        - idx: The index of the message in the table.
+        - row: The row of the message in the table.
+
+    Returns:
+        The style to apply to the message.
+    """
+    
+    print('STYLE PRINT:', idx, 'xxxx', type(idx))
+    if idx is None: 
+        return None
+    
+    if idx % 2 == 0:
+        return "user_message"
+    else:
+        return "ai_message"
+
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
     if isinstance(state.user_table, pd.DataFrame):
@@ -296,23 +319,27 @@ def on_retrieval_query(state, id, payload):
     
 
 def on_rag_input(state, id, payload):
+    if not state.RAGentic.chat_dict:
+        state.RAGentic.chat_dict['RAG'] = []
+        
+    state.RAGentic.chat_dict['RAG'].append(state.rag_current_user_query)
+    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
     
     filters = {
             main_tags_col_name:state.rag_retrieval_main_tags, 
             sub_tags_col_name:state.rag_retrieval_sub_tags, 
             doc_type_col_name: ['pdf', 'text'] if state.rag_considered_docs == 'all' else state.rag_considered_docs, 
-            entry_id_col_name:[ym.get_user_pdf_names_ids(state.user_email)[pdf_name] for pdf_name in state.rag_considered_pdfs] if state.rag_considered_docs == 'pdf' else None
+            entry_id_col_name:[ym.get_user_pdf_names_ids(state.user_email)[pdf_name] for pdf_name in state.rag_considered_pdfs] if state.rag_considered_docs in ['pdf', 'all'] else None
         }
                  
     llm_params = {
         'model': state.llm_name,
-        'temperature': state.llm_temperature
+        'temperature': float(state.llm_temperature)
     }
     
     retrieval_params = {
-        'lang_vdb': state.lang_user_vdb,
         'search_type': state.rag_retrieval_search_type if state.rag_retrieval_search_type else rag_retrieval_search_type,
-        'k_outputs': state.rag_k_outputs_retrieval,
+        'k_outputs': int(state.rag_k_outputs_retrieval),
         'rerank': False if state.rag_retrieval_rerank.lower() == 'false' else state.rag_retrieval_rerank.lower(),
         'filter_strictness': state.rag_retrieval_filter_strictness,
         'filters': filters,
@@ -326,8 +353,11 @@ def on_rag_input(state, id, payload):
         llm_params,
         retrieval_params
     )
-    
-    print(ai_response)
+
+    state.RAGentic.chat_dict['RAG'].append(ai_response)
+    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
+
+
     
             
 

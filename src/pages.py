@@ -4,7 +4,8 @@ import taipy.gui.builder as tgb
 from taipy.gui import Icon
 
 from callbacks import (
-            on_login, on_sign_in,
+            on_login, 
+            on_sign_in,
             on_text_entry_add,
             on_image_to_text,
             on_txt_file_load,
@@ -13,7 +14,8 @@ from callbacks import (
             on_filter_tags,
             on_reset_filters,
             on_retrieval_query,
-            on_rag_input
+            on_rag_input,
+            style_rag
         )
 
 from page_ids import page_ids
@@ -229,10 +231,10 @@ with tgb.Page() as rag:
                          lov="{rag_considered_docs_choices}", 
                          multiple=False, dropdown=True, label='Documents considered')
             
-            if rag_considered_docs == 'pdf':
-                tgb.selector(value="{rag_considered_pdfs}", 
-                             lov="{user_pdf_names_ids.keys()}", 
-                             multiple=True, dropdown=True, label='PDFs considered')
+
+            tgb.selector(value="{rag_considered_pdfs}", 
+                         lov="{user_pdf_names_ids.keys()}", 
+                         multiple=True, dropdown=True, label='PDFs considered')
 
             tgb.selector(value="{rag_retrieval_search_type}", 
                          lov=retrieval_search_type_possibilities, 
@@ -262,7 +264,7 @@ with tgb.Page() as rag:
         with tgb.part("2"):
             # Main content
             tgb.text("## RAG app:", mode="md")
-            tgb.table("{rag_conversation_table}", editable=False, width=100, show_all=True)  
+            tgb.table("{rag_conversation_table}", editable=False, style=style_rag, show_all=True)  
             tgb.input("{rag_current_user_query}", label='Enter your message here...', on_action=on_rag_input)
     
     

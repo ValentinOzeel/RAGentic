@@ -123,7 +123,7 @@ class YamlManagment():
             data['user_n_entry_id'] = {}
         # Init user_n_entry_id for user_if as 0 if it doesnt exists already
         if not data['user_n_entry_id'].get(user_id, None):
-            data['user_n_entry_id'][user_id] = 0
+            data['user_n_entry_id'][user_id] = 1
         # Persist modifs in yaml
         with open(credentials_yaml_path, 'w') as file:
             yaml.dump(data, file)
@@ -153,7 +153,7 @@ class YamlManagment():
         if not data['user_loaded_pdfs'].get(user_id, None):
             data['user_loaded_pdfs'][user_id] = {}
         # Append pdf file name
-        data['user_loaded_pdfs'][user_id][doc_id] = pdf_file_name
+        data['user_loaded_pdfs'][user_id][pdf_file_name] = doc_id
         # Persist data in yaml
         with open(credentials_yaml_path, 'w') as file:
             yaml.dump(data, file)
@@ -165,7 +165,7 @@ class YamlManagment():
             data = yaml.safe_load(file)  
         if not data.get('user_loaded_pdfs', None):
             data['user_loaded_pdfs'] = {}
-        return data['user_loaded_pdfs'].get(user_id, None)
+        return data['user_loaded_pdfs'].get(user_id, {})
 
     @staticmethod
     def get_entry_id_and_increment(user_id):
@@ -777,6 +777,9 @@ class RAGentic():
             temperature=llm_temperature,
         )
         
+        # Chat strings for incremental display in app
+        self.chat_dict = {}
+        
         # Chat history
         self.chat_history = InMemoryChatMessageHistory()
         
@@ -794,12 +797,10 @@ class RAGentic():
             | StrOutputParser()
         )
     
-    
-    
         self.rag_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt_with_base_knowledge),
-                MessagesPlaceholder("retrieved_docs_rag_format"),
+                ("human", "{retrieved_docs_rag}"),
                 ("human", "{chat_history_contextualized_human_query}"),
             ]
         )
@@ -811,7 +812,9 @@ class RAGentic():
         )
 
 
-
+    def _get_chat_history_content(self):
+        return [msg.content for msg in self.chat_history.messages]
+    
     def _modify_llm_params(self, params:Dict): 
         for param_name, param_value in params.items():
             try:    
@@ -993,8 +996,12 @@ class RAGentic():
 
     
     def _trim_chat_history(self, chat_history=None):
+        messages = chat_history if chat_history else self.chat_history.messages
+        if not messages:
+            return []
         return trim_messages(
-                max_tokens=chat_history if chat_history else self.chat_history.messages,
+                messages = messages,
+                max_tokens=max_chat_history_tokens,
                 strategy="last",
                 token_counter=self.llm,
                 include_system=True,
@@ -1004,7 +1011,7 @@ class RAGentic():
         
     def _chat_history_contextualize_human_query(self, human_query):
         # Trim the chat history before passing it to the chain
-        trimmed_history = self._trim_chat_history()
+        trimmed_history = self._trim_chat_history(self.chat_history.messages)
         # Use self.history_contextualize_q_chain to generate new query
         return self.chat_history_contextualize_q_chain.invoke({
             "chat_history": trimmed_history,

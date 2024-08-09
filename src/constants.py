@@ -39,8 +39,8 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
-chunk_size = 500
-chunk_overlap = 100
+chunk_size = 1500
+chunk_overlap = 300
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
@@ -235,16 +235,17 @@ sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 ## RAG
 max_chat_history_tokens = 4000
 
-rag_conversation_table = None
+rag_conversation_table = pd.DataFrame(columns=['RAG'])
+rag_dict = {'RAG': []}
 rag_current_user_query = ''
 rag_considered_docs_choices = ['pdf', 'text', 'all']
-rag_considered_docs = 'All'
+rag_considered_docs = 'all'
 rag_considered_pdfs = []
 
 rag_retrieval_search_type = retrieval_search_type_possibilities[0]
 rag_retrieval_filter_strictness = retrieval_filter_strictness_choices[0]
 rag_retrieval_rerank = 'flashrank'
-rag_k_outputs_retrieval = 3
+rag_k_outputs_retrieval = "3"
 rag_retrieval_main_tags = []
 rag_retrieval_sub_tags = []
 

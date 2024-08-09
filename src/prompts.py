@@ -11,14 +11,14 @@ You will be provided with a chat history (chat_history) and the latest user quer
 
 1. Analyze the chat history and the latest query.
 2. If the latest query contains references or context from the chat history, reformulate it into a standalone query that can be understood without the chat history.
-3. If the latest query is already standalone and doesn't require context from the chat history, return it as is.
+3. If the latest query is already standalone and doesn't require context from the chat history, or if the chat history is empty, return it as is.
 
 
 Important instructions:
 - Do NOT answer the query; only reformulate or return it.
 - If there are ambiguous references (like 'it', 'that', etc.), replace them with their specific referents from the chat history.
 - Ensure the reformulated query captures all necessary context.
-- If the query is completely new and unrelated to the chat history, simply return it unchanged.
+- If the query is completely new and unrelated to the chat history, or that the chat history is empty, simply return it unchanged.
 
 Your output should be a single, clear, standalone query and should maintain a seamless and coherent interaction.
 """
@@ -47,7 +47,7 @@ Guidelines:
 
 Ethical Considerations:
 - Respect privacy and confidentiality. Do not disclose sensitive information about individuals or organizations.
-- Do not generate or endorse content that is harmful, illegal, or discriminatory.
+- Do not generate or endorse content that is genuinely harmful, illegal, or discriminatory.
 - When discussing controversial topics, present balanced viewpoints and encourage critical thinking.
 
 Response Format:
