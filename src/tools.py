@@ -772,11 +772,19 @@ class LangVdb:
 class RAGentic():
     
     def __init__(self):
+        
+        #from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+        #from langchain.callbacks.manager import CallbackManager
+#
+        #callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
+
         self.llm = ChatOllama(
             model=llm_name,
             temperature=llm_temperature,
+        #    callbacks=callback_manager
         )
         
+
         # Chat strings for incremental display in app
         self.chat_dict = {}
         
@@ -1032,14 +1040,38 @@ class RAGentic():
         })
         
 
+    def _TEST_rag_query(self, history_contextualized_query, lang_vdb, llm_params, retrieval_params):
+        # Retrieve documents using the RAG retrieval method
+        retrieved_docs_rag = self.retrieval(
+            history_contextualized_query, 
+            lang_vdb, 
+            llm_params=llm_params, 
+            **retrieval_params
+        )
+        
+        # Build the final RAG prompt
+        rag_prompt_input = self.rag_prompt.format_messages(
+            retrieved_docs_rag=retrieved_docs_rag,
+            chat_history_contextualized_human_query=history_contextualized_query
+        )
+
+        # Convert to string if needed
+        prompt_string = "\n".join([f"{role}: {content}" for role, content in rag_prompt_input])
+        
+        # Print the final prompt for debugging or inspection
+        print("Final RAG Prompt:\n", prompt_string)
+        
+        # Invoke the LLM with the final RAG prompt
+        ai_response = self.llm.invoke(prompt_string)
+        
+        return ai_response
     
     def send_user_query_to_rag(self, lang_vdb, human_query, llm_params, retrieval_params):
 
 
         chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
         
-        
-        ai_response = self._rag_query(
+        ai_response = self._TEST_rag_query(
             chat_history_contextualized_human_query,
             lang_vdb,
             llm_params,

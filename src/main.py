@@ -33,5 +33,24 @@ if __name__ == "__main__":
         page_ids["rag"]: rag
     }
 
-
-    Gui(pages=pages).run(use_reloaders=True, debug=True)
+    my_theme = {
+      "palette": {
+        "background": {"default": "#0e0916"},
+        "primary": {"main": "#67be86"}
+      }
+    }
+  
+    style_kit = {
+      'color_primary': "#67be86",
+      'color_secondary': "#4fc2b0",
+      
+      'font_family': "Lato, Arial, sans-serif",
+      
+      'color_error': "#FF595E",
+      'color_warning': "#FAA916",
+      'color_success': "#96E6B3",
+      
+      'input_button_height': "65px"
+    }
+    
+    Gui(pages=pages).run(favicon='src\images\rag.png', theme=my_theme, stylekit=style_kit, use_reloaders=True, debug=True)

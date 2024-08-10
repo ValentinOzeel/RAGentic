@@ -3,6 +3,7 @@ from taipy.gui import navigate, notify
 
 import os
 import pandas as pd
+import copy
 
 from constants import (
     notify_duration, 
@@ -16,21 +17,17 @@ from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, ima
 def style_rag(state, idx: int, row: int) -> str:
     """
     Apply a style to the conversation table depending on the message's author.
-
     Args:
         - state: The current state of the app.
         - idx: The index of the message in the table.
         - row: The row of the message in the table.
-
     Returns:
         The style to apply to the message.
     """
-    
-    print('STYLE PRINT:', idx, 'xxxx', type(idx))
+
     if idx is None: 
         return None
-    
-    if idx % 2 == 0:
+    elif idx % 2 == 0:
         return "user_message"
     else:
         return "ai_message"
@@ -322,7 +319,10 @@ def on_rag_input(state, id, payload):
     if not state.RAGentic.chat_dict:
         state.RAGentic.chat_dict['RAG'] = []
         
-    state.RAGentic.chat_dict['RAG'].append(state.rag_current_user_query)
+    rag_current_user_query = copy.copy(state.rag_current_user_query)
+    state.rag_current_user_query = ''
+    
+    state.RAGentic.chat_dict['RAG'].append(rag_current_user_query)
     state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
     
     filters = {
@@ -349,7 +349,7 @@ def on_rag_input(state, id, payload):
     
     ai_response = state.RAGentic.send_user_query_to_rag(
         state.lang_user_vdb,
-        state.rag_current_user_query,
+        rag_current_user_query,
         llm_params,
         retrieval_params
     )

@@ -213,8 +213,8 @@ with tgb.Page() as retrieve_data:
     
   
 with tgb.Page() as rag:
-    with tgb.layout("1 1 2"):
-        with tgb.part("1"):
+    with tgb.layout("1 2", gap="30px"):
+        with tgb.part("sidebar"):
             # This part acts like a sidebar
             tgb.text("## RAG Parameters", mode="md")
             
@@ -223,15 +223,11 @@ with tgb.Page() as rag:
                          multiple=False, dropdown=True, label='LLM used')
             
             tgb.slider("{llm_temperature}", min=0, max=1, step=0.05, hover_text='LLM temperature', width=200, labels={n:n for n in range(0, 1)})
-            #tgb.indicator('LLM temperature', value="{llm_temperature}", min="0.0", max="1.0")
-            
-            tgb.text("  \n\n  ", mode="md")
             
             tgb.selector(value="{rag_considered_docs}", 
                          lov="{rag_considered_docs_choices}", 
                          multiple=False, dropdown=True, label='Documents considered')
             
-
             tgb.selector(value="{rag_considered_pdfs}", 
                          lov="{user_pdf_names_ids.keys()}", 
                          multiple=True, dropdown=True, label='PDFs considered')
@@ -258,8 +254,6 @@ with tgb.Page() as rag:
                          lov="{user_sub_tags}", 
                          multiple=True, dropdown=True, label='Retrieval sub tag filter')
 
-        with tgb.part("1"):
-            tgb.text("   ", mode="text")  
             
         with tgb.part("2"):
             # Main content
