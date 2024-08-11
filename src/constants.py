@@ -241,6 +241,7 @@ rag_current_user_query = ''
 rag_considered_docs_choices = ['pdf', 'text', 'all']
 rag_considered_docs = 'all'
 rag_considered_pdfs = []
+rag_ai_response = ''
 
 rag_retrieval_search_type = retrieval_search_type_possibilities[0]
 rag_retrieval_filter_strictness = retrieval_filter_strictness_choices[0]

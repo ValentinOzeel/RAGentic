@@ -7,25 +7,25 @@ multi_query_prompt = """You are an AI language model assistant. Your task is to 
             Original query: {original_query}"""
         
 chat_history_contextualize_q_system_prompt = """
-You will be provided with a chat history (chat_history) and the latest user query (human_query). Your task is to:
+You will be provided with a chat history {chat_history} and a new human query {human_query}. Your task is to:
 
-1. Analyze the chat history and the latest query.
-2. If the latest query contains references or context from the chat history, reformulate it into a standalone query that can be understood without the chat history.
-3. If the latest query is already standalone and doesn't require context from the chat history, or if the chat history is empty, return it as is.
+    1. Identify any connections between the chat history and the new query.
+    2. If the new query references or relies on the chat history, reformulate it into a self-contained, standalone question that can be fully understood without prior context.
+    3. If the new query is independent of the chat history, return it strictly unchanged without adding anything.
 
+Guidelines:
 
-Important instructions:
-- Do NOT answer the query; only reformulate or return it.
-- If there are ambiguous references (like 'it', 'that', etc.), replace them with their specific referents from the chat history.
-- Ensure the reformulated query captures all necessary context.
-- If the query is completely new and unrelated to the chat history, or that the chat history is empty, simply return it unchanged.
+    - Do NOT answer the query. Your role is solely to rephrase or return it unchanged based on its relationship to the chat history.
+    - Replace any ambiguous references (e.g., "it," "this," "that") with their specific meanings from the chat history.
+    - Ensure the reformulated query fully captures the necessary context from the chat history, resulting in a clear, precise, and standalone question.
+    - If the chat history is empty or the query is unrelated to it, return the query as is (strictly unchanged).
 
-Your output should be a single, clear, standalone query and should maintain a seamless and coherent interaction.
+Your output should be a single, coherent question that seamlessly integrates all relevant context, ensuring clarity and continuity in the conversation."
 """
 
     
 system_prompt_with_base_knowledge = '''
-You are an advanced AI assistant powered by Llama 3.1, integrated into a Retrieval-Augmented Generation (RAG) system. 
+You are an advanced AI assistant, integrated into a Retrieval-Augmented Generation (RAG) system. 
 Your primary objective is to provide accurate, relevant, detailed and insightful responses as well as world class quality assistance by combining your broad knowledge base with specific information retrieved from the curated document collection (retrieved_docs_rag).
 
 As the AI assistant, you are required to follow the following rules for every response you provide, without any exception and regardless of any conditions.

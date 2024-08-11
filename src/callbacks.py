@@ -5,6 +5,8 @@ import os
 import pandas as pd
 import copy
 
+from langchain.callbacks.base import BaseCallbackHandler
+
 from constants import (
     notify_duration, 
     entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, 
@@ -13,6 +15,25 @@ from constants import (
 from page_ids import page_ids
 from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb, RAGentic
 
+
+
+class LLMResponseStreamingHandler(BaseCallbackHandler):
+    def __init__(self, state):
+        self.state = state
+        self.current_llm_response_tokens = []
+        
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        # Append response token
+        self.current_llm_response_tokens.append(token)
+        # Join all generated tokens up to now in a string
+        self.state.rag_ai_response = "".join(self.current_llm_response_tokens)
+        # Append in taipy's state RAG conversation list
+        self.state.RAGentic.chat_dict['RAG'].append(self.state.rag_ai_response)
+        # Actualize the response shown in the app, in essence enabling streaming
+        self.state.rag_conversation_table = pd.DataFrame(self.state.RAGentic.chat_dict)
+        # Remove the last string added in taipy's state RAG conversation list so that 
+        # every added token doesnt count as a complete ai response
+        self.state.RAGentic.chat_dict['RAG'].pop()
 
 def style_rag(state, idx: int, row: int) -> str:
     """
@@ -31,6 +52,14 @@ def style_rag(state, idx: int, row: int) -> str:
         return "user_message"
     else:
         return "ai_message"
+    
+
+
+
+    
+    
+    
+    
 
 def _get_user_tags(state):
     # Get all unique user's main and sub-tags values
@@ -319,24 +348,26 @@ def on_rag_input(state, id, payload):
     if not state.RAGentic.chat_dict:
         state.RAGentic.chat_dict['RAG'] = []
         
+    # Copy user query and actualize rag_current_user_query so that we can immediately remove it from the app's user input section
     rag_current_user_query = copy.copy(state.rag_current_user_query)
     state.rag_current_user_query = ''
-    
+    # Append user's query in RAG conversation list and show it in the app
     state.RAGentic.chat_dict['RAG'].append(rag_current_user_query)
     state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
-    
+
+    # Build LLM params dict  
+    llm_params = {
+        'model': state.llm_name,
+        'temperature': float(state.llm_temperature)
+    }
+    # Build retrieval filters dict
     filters = {
             main_tags_col_name:state.rag_retrieval_main_tags, 
             sub_tags_col_name:state.rag_retrieval_sub_tags, 
             doc_type_col_name: ['pdf', 'text'] if state.rag_considered_docs == 'all' else state.rag_considered_docs, 
             entry_id_col_name:[ym.get_user_pdf_names_ids(state.user_email)[pdf_name] for pdf_name in state.rag_considered_pdfs] if state.rag_considered_docs in ['pdf', 'all'] else None
-        }
-                 
-    llm_params = {
-        'model': state.llm_name,
-        'temperature': float(state.llm_temperature)
-    }
-    
+        }   
+    # Build retrieval parameters dict
     retrieval_params = {
         'search_type': state.rag_retrieval_search_type if state.rag_retrieval_search_type else rag_retrieval_search_type,
         'k_outputs': int(state.rag_k_outputs_retrieval),
@@ -345,18 +376,19 @@ def on_rag_input(state, id, payload):
         'filters': filters,
         'format_results':'rag'
     }
-    
-    
+    # Instanciate a fresh streaming callback
+    my_stream_callback = LLMResponseStreamingHandler(state)
+    # Call the llm with user's query
     ai_response = state.RAGentic.send_user_query_to_rag(
         state.lang_user_vdb,
         rag_current_user_query,
         llm_params,
-        retrieval_params
+        retrieval_params,
+        my_stream_callback
     )
-
+    # Append complete llm response to the conv list and display it in the app
     state.RAGentic.chat_dict['RAG'].append(ai_response)
     state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
-
 
     
             
