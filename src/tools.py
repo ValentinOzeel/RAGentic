@@ -65,7 +65,7 @@ from constants import (credentials_yaml_path,
                        llm_name, llm_temperature, max_chat_history_tokens
 )
 
-from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, system_prompt_with_base_knowledge
+from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, rag_system_prompt
             
 
 class YamlManagment():
@@ -804,7 +804,7 @@ class RAGentic():
     
         self.rag_prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", system_prompt_with_base_knowledge),
+                ("system", rag_system_prompt),
                 ("human", "{retrieved_docs_rag}"),
                 ("human", "{chat_history_contextualized_human_query}"),
             ]
@@ -815,6 +815,8 @@ class RAGentic():
             | self.llm 
             | StrOutputParser()
         )
+        
+        self.k_docs = k_outputs_retrieval
 
 
     def _get_chat_history_content(self):
@@ -834,12 +836,25 @@ class RAGentic():
                   filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
                   format_results:Literal['str', 'rag', False, None]=False):
 
+        self.k_docs = k_outputs if k_outputs else self.k_docs
+        
+        print(
+            f'''
+            \n\n\n
+            query: {query},
+            llm_params: {llm_params}
+            search_type: {search_type}
+            k_outputs: {self.k_docs}
+            rerank: {rerank}
+            \n\n\n
+            '''
+        )
         # Update llm params
         if isinstance(llm_params, Dict) and llm_params:
             self._modify_llm_params(llm_params)
         
         # Build initial search_kwargs
-        search_kwargs = {'k': k_outputs}
+        search_kwargs = {'k': self.k_docs}
         # kwargs specific to "similarity_score_threshold" and "mmr"
         if search_type == "similarity_score_threshold":
             search_kwargs['score_threshold'] = relevance_threshold
@@ -866,7 +881,8 @@ class RAGentic():
         # Get retriever results using reranking (flashrank or rag fusion)
         if rerank:
             reranked_docs = self.reranking(rerank, retriever, query)
-            retrieved_docs = self._get_k_best_results(reranked_docs, k_outputs) 
+            retrieved_docs = self._get_k_best_results(reranked_docs, self.k_docs) 
+            
         # Get retriever results
         else:
             retrieved_docs = retriever.invoke(query)
@@ -875,7 +891,7 @@ class RAGentic():
         if streaming_callback_llm_response:
             self._modify_llm_params({'callbacks':CallbackManager([streaming_callback_llm_response])})
             
-        print('DOCS:', self._retrieval_results_str_format(retrieved_docs))
+        print('RETRIEVED DOCS:', self._retrieval_results_str_format(retrieved_docs))
             
         if format_results == 'str':  
             return self._retrieval_results_str_format(retrieved_docs) 
@@ -924,7 +940,7 @@ class RAGentic():
 
     def _flashrank_reranking(self, base_retriever, query):
         # Perform reranking with FlashRank
-        compressor = FlashrankRerank()
+        compressor = FlashrankRerank(top_n=self.k_docs)
         compression_retriever = ContextualCompressionRetriever(
             base_compressor=compressor, base_retriever=base_retriever
         )       

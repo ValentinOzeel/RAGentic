@@ -39,7 +39,7 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
-chunk_size = 1500
+chunk_size = 2000
 chunk_overlap = 300
 
 retrieval_query = ''
@@ -233,7 +233,7 @@ mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diver
 sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
 ## RAG
-max_chat_history_tokens = 4000
+max_chat_history_tokens = 6000
 
 rag_conversation_table = pd.DataFrame(columns=['RAG'])
 rag_dict = {'RAG': []}
