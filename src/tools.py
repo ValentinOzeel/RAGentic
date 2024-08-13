@@ -14,6 +14,7 @@ import sqlite3
 import easyocr
 
 from llama_parse import LlamaParse
+from langchain_community.document_loaders import PDFPlumberLoader
 
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
@@ -428,10 +429,11 @@ class LangVdb:
         "llama_parse": LlamaParse(
                        api_key=os.environ.get('LLAMA_CLOUD_API_KEY'),
                        result_type="text",  # "markdown" and "text" are available
-                       num_workers=4,  # if multiple files passed, split in `num_workers` API calls
+                       num_workers=2,  # if multiple files passed, split in `num_workers` API calls
                        verbose=True,
                        language="en",  # Optionally you can define a language, default=en
-                       )
+                       ),
+        "langchain_pdfplumber": PDFPlumberLoader
         }
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
@@ -657,27 +659,34 @@ class LangVdb:
         
 
     @staticmethod
-    def _parse_PDF(pdf_path, parser_type:str = 'llama_parse'):
+    def _parse_PDF(pdf_path, parser_type:str = 'langchain_pdfplumber'):
         
         try:
             # Parse PDF
             parser = LangVdb._pdf_parsers[parser_type]
-            parsed_pdf = parser.load_data(pdf_path)
-            # Load parsing output in temporary file 
-            txt_file_path = 'output.txt'
-            with open(txt_file_path, 'w', encoding='utf-8') as f:
-                for doc in parsed_pdf:
-                    f.write(doc.text + '\n')
-            # Load txt file with TextLoader
-            #[
-            #    Document(
-                # page_content='---\nsidebar_position: 0\n---\nThey optionally implement:\n\n3. "Lazy load": load documents into memory lazily\n', 
-                # metadata={'source': '../docs/docs/modules/data_connection/document_loaders/index.md'})
-            #]
-            loader = TextLoader(txt_file_path, autodetect_encoding=True)
-            documents = loader.load()
-            # Delete the file
-            os.remove(txt_file_path)
+            
+            # If using Llamaindex's llama_parse
+            if parser_type == "llama_parse":
+                parsed_pdf = parser.load_data(pdf_path) 
+                # Load parsing output in temporary file 
+                txt_file_path = 'output.txt'
+                with open(txt_file_path, 'w', encoding='utf-8') as f:
+                    for doc in parsed_pdf:
+                        f.write(doc.text + '\n')
+                # Load txt file with TextLoader
+                #[
+                #    Document(
+                    # page_content='---\nsidebar_position: 0\n---\nThey optionally implement:\n\n3. "Lazy load": load documents into memory lazily\n', 
+                    # metadata={'source': '../docs/docs/modules/data_connection/document_loaders/index.md'})
+                #]
+                loader = TextLoader(txt_file_path, autodetect_encoding=True)
+                documents = loader.load()
+                # Delete the file
+                os.remove(txt_file_path)
+            # Else using one of langchain's pdf loader
+            else:
+                loader = parser(pdf_path)
+                documents = loader.load()
             # Split loaded documents into chunks
             return RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap).split_documents(documents)
 

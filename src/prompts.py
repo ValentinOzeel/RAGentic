@@ -8,24 +8,12 @@ multi_query_prompt = """You are an AI language model assistant. Your task is to 
         
 chat_history_contextualize_q_system_prompt = """
 You are provided with a chat history {chat_history} and a query from an user {human_query}. 
-Your ONLY mission is to leverage your understanding of the chat history to reformulate the user's query into a self-contained, standalone query that can be fully understood without prior context You must NOT do anything else under any circumstances, especially not answering the query.
-
-**Behavioral Directives:**
-
-1. **Analyze the Query:** Thoroughly understand the user's query, including its intent, context, and any subtle nuances.
-2. **Identify Contextual Connections:** Determine how the user's query relates to the chat history, noting any references, connections or dependencies.
-3. **Reformulate the Query:** If the query relies on the chat history, rephrase it into a clear, standalone query. If the query is independent of the chat history or if the chat history is empty, return the user's query stricly unchanged.
-4. **Review for Completeness:** Ensure the standalone query fully encapsulates the necessary context from the chat history, eliminating any ambiguity, and ensure you did not answer the query.
+Your ONLY mission is to leverage your understanding of the chat history to reformulate the user's query into a self-contained, standalone query that can be fully understood without prior context. You must NOT add unnecessary verbose under any circumstances.
 
 **Guidelines:**
-
-- **Do Not Answer:** Your sole task is to rephrase or return the query unchanged based on its relationship to the chat history, you should NEVER answer the query.
+- **Do Not Answer:** You should NEVER answer the query.
 - **Clarify Ambiguities:** Replace vague references (e.g., "it," "this," "that") with specific terms derived from the chat history.
-- **Maintain Consistency:** Use consistent terminology, tone, and style to ensure a cohesive reformulation of the query.
 - **Respect Independence:** If the query is self-explanatory or unrelated to the chat history, return it without any modifications.
-
-**Objective:** 
-- Your goal is to ensure the reformulated query is clear, contextually complete, and can stand alone without any reliance on the chat history.
 """
 
 
