@@ -303,8 +303,8 @@ class SQLiteManagment:
                             INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         ''', values)
-                        
-                    elif multiple_entries:
+      
+                    elif multiple_entries:                        
                         entries_to_add = [
                             (
                                 user_id,
@@ -483,15 +483,21 @@ class LangVdb:
     ### TEXT ENTRY HANDLER ###
     ### TEXT ENTRY HANDLER ###
     ### TEXT ENTRY HANDLER ###
+    @staticmethod
+    def _format_tags_list_to_str_sql_entry(tags_list):
+        return f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in tags_list]) if isinstance(tags_list, List) else tags_list
+
     
     @staticmethod
     def format_text_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
         """
         FORMAT SINGLE ENTRY (USER TEXT) TO SQL OR VDB FORMAT
         """
+        
+        # Format tag lists as str (sqlite cannot save list)
         if format == 'sqlite':
-            main_tags = f'{sqlite_tags_separator}'.join(main_tags) if isinstance(main_tags, List) else main_tags
-            sub_tags = f'{sqlite_tags_separator}'.join(sub_tags) if isinstance(sub_tags, List) else sub_tags
+            main_tags = LangVdb._format_tags_list_to_str_sql_entry(main_tags)
+            sub_tags = LangVdb._format_tags_list_to_str_sql_entry(sub_tags)
 
         # Get doc's id and increment
         entry_id = YamlManagment.get_entry_id_and_increment(user_id)
@@ -534,15 +540,8 @@ class LangVdb:
                 elif text_delimiter in lines[i]:
                     text = ' '.join(lines[i:]).replace(text_delimiter, '')
 
-            # Format list as str (sqlite cannot save list)
-            if format == 'sqlite':
-                 # Format tags to sqlite (string) 
-                main_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in main_tags]) if format == 'sqlite' else main_tags
-                sub_tags_str = f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in sub_tags]) if format == 'sqlite' else sub_tags
-                return LangVdb.format_text_entry(user_id, date, main_tags_str, sub_tags_str, text, format=format)
-            # Retain lsit format otherwise
-            else:
-                return LangVdb.format_text_entry(user_id, date, main_tags, sub_tags, text, format=format)
+            # Format entry
+            return LangVdb.format_text_entry(user_id, date, main_tags, sub_tags, text, format=format)
 
 
         # Open and read the file
@@ -732,15 +731,13 @@ class LangVdb:
             {
                 entry_id_col_name: doc.metadata[entry_id_col_name],   
                 date_col_name: doc.metadata[date_col_name],
-                main_tags_col_name: doc.metadata[main_tags_col_name],
-                sub_tags_col_name: doc.metadata[sub_tags_col_name],
+                main_tags_col_name: LangVdb._format_tags_list_to_str_sql_entry(doc.metadata[main_tags_col_name]),
+                sub_tags_col_name: LangVdb._format_tags_list_to_str_sql_entry(doc.metadata[sub_tags_col_name]),
+                doc_type_col_name: doc.metadata[doc_type_col_name],
                 text_col_name: doc.page_content,
             } for doc in docs
         ]
         SQLiteManagment.add_entry_to_sqlite(user_id, multiple_entries=list_entries)
-
-
-
 
         
     ### DOCUMENTS INDEXING IN VDB ###
@@ -1044,13 +1041,21 @@ class RAGentic():
             )
         
     def _chat_history_contextualize_human_query(self, human_query):
+        # Get current llm temperature
+        original_temperature = getattr(self.llm, 'temperature')
+        # Set llm temperature to 0
+        self._modify_llm_params({'temperature' : 0})
         # Trim the chat history before passing it to the chain
         trimmed_history = self._trim_chat_history(self.chat_history.messages)
         # Use self.history_contextualize_q_chain to generate new query
-        return self.chat_history_contextualize_q_chain.invoke({
-            "chat_history": trimmed_history,
-            "human_query": human_query
-        })
+        chat_history_contextualized_human_query = self.chat_history_contextualize_q_chain.invoke({
+                                                      "chat_history": trimmed_history,
+                                                      "human_query": human_query
+                                                  })
+        # Set temperature to original value
+        self._modify_llm_params({'temperature' : original_temperature})
+        # Return contextualized query
+        return chat_history_contextualized_human_query
         
     
     def _rag_query(self, history_contextualized_query, lang_vdb, llm_params, retrieval_params, streaming_callback_llm_response=None):

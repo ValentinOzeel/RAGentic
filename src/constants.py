@@ -39,7 +39,7 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
-chunk_size = 2000
+chunk_size = 3000
 chunk_overlap = 300
 
 retrieval_query = ''

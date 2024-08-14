@@ -191,7 +191,7 @@ with tgb.Page() as retrieve_data:
                      lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
                      multiple=False, dropdown=True, label='Rerank usage')
 
-        tgb.slider("{k_outputs_retrieval}", min=1, max=10, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(10)})
+        tgb.slider("{k_outputs_retrieval}", min=1, max=30, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(0, 30, 10)})
 
         tgb.selector(value="{retrieval_main_tags}", 
                      lov="{user_main_tags}", 
@@ -236,7 +236,7 @@ with tgb.Page() as rag:
                          lov=retrieval_search_type_possibilities, 
                          multiple=False, dropdown=True, label='Retrieval search type')
 
-            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=10, step=1, hover_text='n retrieval outputs', width=200, labels={n+1:n+1 for n in range(10)})
+            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=30, step=1, hover_text='n retrieval outputs', width=200, labels={n+1:n+1 for n in range(0, 30, 10)})
             
             tgb.selector(value="{rag_retrieval_rerank}", 
                          lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
