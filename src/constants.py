@@ -233,15 +233,20 @@ mmr_lambda_mult = 0.5 #Diversity of results returned by MMR; 1 for minimum diver
 sql_record_manager_path = "sqlite:///conf/record_manager_cache.sql"
 
 ## RAG
-max_chat_history_tokens = 6000
+max_chat_history_tokens = 20000
 
-rag_conversation_table = pd.DataFrame(columns=['RAG'])
-rag_dict = {'RAG': []}
+rag_input_active = True
+rag_column_shown_in_table = 'RAG_conversation'
+ai_role = 'ai'
+human_role = 'human'
+rag_dict = {'RAG': {rag_column_shown_in_table:[], 'role':[]}}
+rag_conversation_table = pd.DataFrame(columns=[rag_column_shown_in_table, 'role'])
 rag_current_user_query = ''
 rag_considered_docs_choices = ['pdf', 'text', 'all']
 rag_considered_docs = 'all'
 rag_considered_pdfs = []
 rag_ai_response = ''
+
 
 rag_retrieval_search_type = retrieval_search_type_possibilities[0]
 rag_retrieval_filter_strictness = retrieval_filter_strictness_choices[0]

@@ -10,7 +10,8 @@ from langchain.callbacks.base import BaseCallbackHandler
 from constants import (
     notify_duration, 
     entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, 
-    filter_strictness_choices, retrieval_search_type, rag_retrieval_search_type
+    filter_strictness_choices, retrieval_search_type, rag_retrieval_search_type,
+    rag_column_shown_in_table, ai_role, human_role
     )
 from page_ids import page_ids
 from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, image_to_text_conversion, LangVdb as lvdb, RAGentic
@@ -28,13 +29,19 @@ class LLMResponseStreamingHandler(BaseCallbackHandler):
         # Join all generated tokens up to now in a string
         self.state.rag_ai_response = "".join(self.current_llm_response_tokens)
         # Append in taipy's state RAG conversation list
-        self.state.RAGentic.chat_dict['RAG'].append(self.state.rag_ai_response)
+        self.state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].append(self.state.rag_ai_response)
+        self.state.RAGentic.chat_dict['RAG']['role'].append(ai_role)
         # Actualize the response shown in the app, in essence enabling streaming
-        self.state.rag_conversation_table = pd.DataFrame(self.state.RAGentic.chat_dict)
+        self.state.rag_conversation_table = pd.DataFrame(self.state.RAGentic.chat_dict['RAG'])
         # Remove the last string added in taipy's state RAG conversation list so that 
         # every added token doesnt count as a complete ai response
-        self.state.RAGentic.chat_dict['RAG'].pop()
+        self.state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].pop()
+        self.state.RAGentic.chat_dict['RAG']['role'].pop()
+        
 
+
+    
+    
 def style_rag(state, idx: int, row: int) -> str:
     """
     Apply a style to the conversation table depending on the message's author.
@@ -45,13 +52,16 @@ def style_rag(state, idx: int, row: int) -> str:
     Returns:
         The style to apply to the message.
     """
-
     if idx is None: 
         return None
-    elif idx % 2 == 0:
-        return "user_message"
-    else:
-        return "ai_message"
+    
+    role = state.rag_conversation_table.at[idx, "role"] if state.rag_conversation_table.at[idx, "role"] else None
+
+    if role == human_role:
+        return 'human_message'
+    elif role == ai_role:
+        return 'ai_message'
+        
     
 
 
@@ -344,17 +354,31 @@ def on_retrieval_query(state, id, payload):
         )
     
 
-def on_rag_input(state, id, payload):
+def on_rag_input(state, id, payload):  
+    # If llm is generating an answer, prevent the user from adding a new query
+    if not state.rag_input_active:
+        notify(state,'info', 'Please wait for the llm to generate its answer first.', duration=notify_duration)
+        return 
+    # If chat_dict is empty, initiate it
     if not state.RAGentic.chat_dict:
-        state.RAGentic.chat_dict['RAG'] = []
-        
+        state.RAGentic.chat_dict['RAG'] = {
+            rag_column_shown_in_table: [],
+            'role': []
+        }
+    
     # Copy user query and actualize rag_current_user_query so that we can immediately remove it from the app's user input section
     rag_current_user_query = copy.copy(state.rag_current_user_query)
     state.rag_current_user_query = ''
+    
+    # Inactivate RAG input
+    state.rag_input_active = False
+    
     # Append user's query in RAG conversation list and show it in the app
-    state.RAGentic.chat_dict['RAG'].append(rag_current_user_query)
-    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
-
+    state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].append(rag_current_user_query)
+    state.RAGentic.chat_dict['RAG']['role'].append(human_role)
+    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict['RAG'])
+    
+    
     # Build LLM params dict  
     llm_params = {
         'model': state.llm_name,
@@ -387,10 +411,12 @@ def on_rag_input(state, id, payload):
         my_stream_callback
     )
     # Append complete llm response to the conv list and display it in the app
-    state.RAGentic.chat_dict['RAG'].append(ai_response)
-    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict)
-
+    state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].append(ai_response)
+    state.RAGentic.chat_dict['RAG']['role'].append(ai_role)
+    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict['RAG'])
     
+    # Activate RAG input
+    state.rag_input_active = True
             
 
     

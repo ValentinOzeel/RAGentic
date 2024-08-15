@@ -28,7 +28,7 @@ from constants import (
     pdf_date, pdf_tags_separator, pdf_main_tags, pdf_sub_tags, pdf_path_to_load, user_pdf_names_ids,
     lang_user_vdb, RAGentic, retrieval_query, k_outputs_retrieval, retrieval_rerank, retrieval_search_type_possibilities, retrieval_search_type, retrieval_filter_strictness_choices, retrieval_filter_strictness, retrieval_main_tags, retrieval_sub_tags, retrieval_results,
     ollama_llms, llm_name, llm_temperature, rag_considered_docs_choices, rag_considered_docs, rag_considered_pdfs, rag_retrieval_search_type, rag_k_outputs_retrieval, rag_retrieval_rerank, rag_retrieval_filter_strictness, rag_retrieval_main_tags, rag_retrieval_sub_tags,
-    rag_conversation_table, rag_current_user_query, rag_ai_response
+    rag_conversation_table, rag_column_shown_in_table, rag_input_active, rag_current_user_query, rag_ai_response
 )
 
 
@@ -191,7 +191,7 @@ with tgb.Page() as retrieve_data:
                      lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
                      multiple=False, dropdown=True, label='Rerank usage')
 
-        tgb.slider("{k_outputs_retrieval}", min=1, max=30, hover_text='n retrieval outputs', labels={n+1:n+1 for n in range(0, 30, 10)})
+        tgb.slider("{k_outputs_retrieval}", min=1, max=30, hover_text='n retrieval outputs', labels={1:1, 5:5, 10:10, 15:15, 20:20, 25:25})
 
         tgb.selector(value="{retrieval_main_tags}", 
                      lov="{user_main_tags}", 
@@ -236,7 +236,7 @@ with tgb.Page() as rag:
                          lov=retrieval_search_type_possibilities, 
                          multiple=False, dropdown=True, label='Retrieval search type')
 
-            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=30, step=1, hover_text='n retrieval outputs', width=200, labels={n+1:n+1 for n in range(0, 30, 10)})
+            tgb.slider("{rag_k_outputs_retrieval}", min=1, max=30, step=1, hover_text='n retrieval outputs', width=200, labels={1:1, 5:5, 10:10, 15:15, 20:20, 25:25})
             
             tgb.selector(value="{rag_retrieval_rerank}", 
                          lov=[(False, 'No rerank'), ('flashrank', 'flashrank'), ('rag_fusion', 'rag_fusion')], 
@@ -258,8 +258,16 @@ with tgb.Page() as rag:
         with tgb.part("2"):
             # Main content
             tgb.text("## RAG app:", mode="md")
-            tgb.table("{rag_conversation_table}", editable=False, style=style_rag, show_all=True)  
-            tgb.input("{rag_current_user_query}", label='Enter your message here...', on_action=on_rag_input)
+            tgb.table("{rag_conversation_table}", 
+                      columns=rag_column_shown_in_table, 
+                      style=style_rag, 
+                      show_all=True, 
+                      )  
+            tgb.input("{rag_current_user_query}", 
+                      label='Enter your message here...', 
+                      active=rag_input_active, 
+                      on_action=on_rag_input,
+                      class_name='fullwidth')
     
     
 

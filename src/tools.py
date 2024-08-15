@@ -1,6 +1,7 @@
 import os
 import time
 import regex as re
+import copy
 from typing import List, Dict, Union, Literal
 
 from contextlib import contextmanager
@@ -48,8 +49,7 @@ from langchain_core.messages import trim_messages
 from operator import itemgetter
 from langchain.schema import StrOutputParser
 ## Messages
-from langchain_core.messages import HumanMessage
-from langchain_core.messages import AIMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 ## Callbacks (streaming repsonse)
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.base import BaseCallbackHandler
@@ -808,6 +808,7 @@ class RAGentic():
             | StrOutputParser()
         )
     
+
         self.rag_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", rag_system_prompt),
@@ -844,17 +845,6 @@ class RAGentic():
 
         self.k_docs = k_outputs if k_outputs else self.k_docs
         
-        print(
-            f'''
-            \n\n\n
-            query: {query},
-            llm_params: {llm_params}
-            search_type: {search_type}
-            k_outputs: {self.k_docs}
-            rerank: {rerank}
-            \n\n\n
-            '''
-        )
         # Update llm params
         if isinstance(llm_params, Dict) and llm_params:
             self._modify_llm_params(llm_params)
@@ -1018,13 +1008,10 @@ class RAGentic():
                 )
     
     def _retrieval_results_to_rag_format(self, retrieved_docs):
-        return "\n\n".join(
-                [
-                    f"Doc_ID: {doc.metadata[entry_id_col_name]}, Doc_content: {doc.page_content}"
-                    for doc in retrieved_docs
-            ]
-        )
-
+        return f"\n{'-'*20}\n".join(
+                    [f"Doc_ID:\n{doc.metadata[entry_id_col_name]}\n\nDoc_content:\n{doc.page_content}" for doc in retrieved_docs]
+                )
+        
     
     def _trim_chat_history(self, chat_history=None):
         messages = chat_history if chat_history else self.chat_history.messages
@@ -1042,7 +1029,7 @@ class RAGentic():
         
     def _chat_history_contextualize_human_query(self, human_query):
         # Get current llm temperature
-        original_temperature = getattr(self.llm, 'temperature')
+        original_temperature = copy.copy(getattr(self.llm, 'temperature'))
         # Set llm temperature to 0
         self._modify_llm_params({'temperature' : 0})
         # Trim the chat history before passing it to the chain
@@ -1086,7 +1073,6 @@ class RAGentic():
             retrieval_params,
             streaming_callback_llm_response=streaming_callback_llm_response
         )   
-        
          
         self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])
         
