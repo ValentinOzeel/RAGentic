@@ -874,6 +874,10 @@ class RAGentic():
             search_kwargs=search_kwargs
             )
        
+       
+        retrieved_docs = retriever.invoke(query)
+        print('RETRIEVED DOCS WITHOUT RERANK:\n\n\n', self._retrieval_results_str_format(retrieved_docs))
+       
         # Get retriever results using reranking (flashrank or rag fusion)
         if rerank:
             reranked_docs = self.reranking(rerank, retriever, query)
@@ -1009,7 +1013,7 @@ class RAGentic():
     
     def _retrieval_results_to_rag_format(self, retrieved_docs):
         return f"\n{'-'*20}\n".join(
-                    [f"Doc_ID:\n{doc.metadata[entry_id_col_name]}\n\nDoc_content:\n{doc.page_content}" for doc in retrieved_docs]
+                    [f"Doc_ID:{doc.metadata[entry_id_col_name]}\n\nDoc_content:{doc.page_content}" for doc in retrieved_docs]
                 )
         
     

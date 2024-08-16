@@ -203,7 +203,7 @@ ollama_llms = [
 ]
 
 llm_name = 'llama3.1'
-llm_temperature = "0.15"
+llm_temperature = "0.1"
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -251,7 +251,7 @@ rag_ai_response = ''
 rag_retrieval_search_type = retrieval_search_type_possibilities[0]
 rag_retrieval_filter_strictness = retrieval_filter_strictness_choices[0]
 rag_retrieval_rerank = 'flashrank'
-rag_k_outputs_retrieval = "3"
+rag_k_outputs_retrieval = "10"
 rag_retrieval_main_tags = []
 rag_retrieval_sub_tags = []
 
