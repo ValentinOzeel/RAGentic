@@ -66,7 +66,7 @@ from constants import (credentials_yaml_path,
                        llm_name, llm_temperature, max_chat_history_tokens
 )
 
-from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, rag_system_prompt
+from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, is_retrieved_data_relevant_system_prompt, rag_system_prompt
             
 
 class YamlManagment():
@@ -781,19 +781,23 @@ class LangVdb:
 class RAGentic():
     
     def __init__(self):
-
+        # Local Chat LLM
         self.llm = ChatOllama(
             model=llm_name,
             temperature=llm_temperature
         )
         
-
+        # n docs retrieval
+        self.k_docs = k_outputs_retrieval
+        
         # Chat strings for incremental display in app
         self.chat_dict = {}
         
         # Chat history
         self.chat_history = InMemoryChatMessageHistory()
         
+        ############################################################################
+        # Chat history query contextualization
         self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", chat_history_contextualize_q_system_prompt),
@@ -801,19 +805,34 @@ class RAGentic():
                 ("human", "{human_query}"),
             ]
         )
-        # Create the chain
+        # Chat history query contextualization chain
         self.chat_history_contextualize_q_chain = (
             self.chat_history_contextualize_q_prompt
             | self.llm
             | StrOutputParser()
         )
-    
-
+        ############################################################################
+        # Retrieved data relevant to answer the query
+        self.is_retrieved_data_relevant_prompt = PromptTemplate(
+            template=is_retrieved_data_relevant_system_prompt,
+            input_variables=["human_query", "retrieved_docs_rag"]
+        )
+        # Retrieved data relevant to answer the query chain
+        self.is_retrieved_data_relevant_chain = (
+            self.is_retrieved_data_relevant_prompt
+            | self.llm
+            | StrOutputParser()
+        )
+        ############################################################################
+        
+        
+        
+        
         self.rag_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", rag_system_prompt),
+                ("human", "{human_query}"),
                 ("human", "{retrieved_docs_rag}"),
-                ("human", "{chat_history_contextualized_human_query}"),
             ]
         )
         
@@ -823,7 +842,7 @@ class RAGentic():
             | StrOutputParser()
         )
         
-        self.k_docs = k_outputs_retrieval
+
 
 
     def _get_chat_history_content(self):
@@ -838,7 +857,7 @@ class RAGentic():
                 
                 
     def retrieval(self, query, lang_vdb,
-                  llm_params:Dict=None, streaming_callback_llm_response:BaseCallbackHandler=None,
+                  llm_params:Dict=None,
                   search_type:str=retrieval_search_type, k_outputs:int=k_outputs_retrieval, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
                   filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
                   format_results:Literal['str', 'rag', False, None]=False):
@@ -874,10 +893,6 @@ class RAGentic():
             search_kwargs=search_kwargs
             )
        
-       
-        retrieved_docs = retriever.invoke(query)
-        print('RETRIEVED DOCS WITHOUT RERANK:\n\n\n', self._retrieval_results_str_format(retrieved_docs))
-       
         # Get retriever results using reranking (flashrank or rag fusion)
         if rerank:
             reranked_docs = self.reranking(rerank, retriever, query)
@@ -886,11 +901,7 @@ class RAGentic():
         # Get retriever results
         else:
             retrieved_docs = retriever.invoke(query)
-
-        # Activate llm response streaming if callback provided
-        if streaming_callback_llm_response:
-            self._modify_llm_params({'callbacks':CallbackManager([streaming_callback_llm_response])})
-            
+        
         print('RETRIEVED DOCS:', self._retrieval_results_str_format(retrieved_docs))
             
         if format_results == 'str':  
@@ -1047,40 +1058,87 @@ class RAGentic():
         self._modify_llm_params({'temperature' : original_temperature})
         # Return contextualized query
         return chat_history_contextualized_human_query
+
+
         
-    
-    def _rag_query(self, history_contextualized_query, lang_vdb, llm_params, retrieval_params, streaming_callback_llm_response=None):
+    def _vector_store_document_retrieval(self, human_query, lang_vdb, llm_params, retrieval_params):
+        return self.retrieval(
+            human_query, 
+            lang_vdb, 
+            llm_params=llm_params,
+            **retrieval_params
+        )
         
+    def _is_retrieved_data_relevant(self, human_query, retrieved_docs_rag):
+        # Get current llm temperature
+        original_temperature = copy.copy(getattr(self.llm, 'temperature'))
+        # Set llm temperature to 0
+        self._modify_llm_params({'temperature' : 0})
+        # Use self.history_contextualize_q_chain to generate new query
+        is_retrieved_data_relevant_response = self.is_retrieved_data_relevant_chain.invoke({
+                                                      "human_query": human_query,
+                                                      "retrieved_docs_rag": retrieved_docs_rag
+                                                  })
+        # Set temperature to original value
+        self._modify_llm_params({'temperature' : original_temperature})
+        # Return contextualized query
+        return is_retrieved_data_relevant_response
+
+    def _rag_query(self, human_query, retrieved_documents):
         return self.rag_chain.invoke({
-            "retrieved_docs_rag": self.retrieval(
-                history_contextualized_query, 
-                lang_vdb, 
-                llm_params=llm_params, 
-                streaming_callback_llm_response=streaming_callback_llm_response,
-                **retrieval_params
-            ),
-            "chat_history_contextualized_human_query": history_contextualized_query
+            "human_query": human_query,
+            "retrieved_docs_rag": retrieved_documents
         })
         
     
     def send_user_query_to_rag(self, lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
 
-
+        # Contextualize query based on chat history
         chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
         
         print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
         
-        ai_response = self._rag_query(
+        # Retrieve documents associated to the query
+        retrieved_documents = self._vector_store_document_retrieval(
             chat_history_contextualized_human_query,
             lang_vdb,
-            llm_params,
-            retrieval_params,
-            streaming_callback_llm_response=streaming_callback_llm_response
-        )   
-         
-        self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])
+            llm_params=llm_params,
+            retrieval_params=retrieval_params
+        )
         
-        # Reset callbacks for normal llm usage 
-        self._modify_llm_params({'callbacks':None})
+        print('\n\n\n', retrieved_documents, '\n\n\n')
         
-        return ai_response
+        
+        self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
+        
+        
+        
+        
+        # Ask llm whether retrieved documents are relevant enough to adress the query
+        is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
+            chat_history_contextualized_human_query,
+            retrieved_documents
+        )
+        
+        print('\n\n\nARE RETRIEVED DOCS RELEVANT :', is_retrieved_data_relevant_response, '\n\n\n')
+        
+        return "OK"
+        #if is_retrieved_data_relevant_response == 'no':
+        #    return "I'm sorry, the retrieved documents are not relevant enought to provide an thorough answer."
+        #
+        #else:
+        #
+        #    # Activate streaming callback
+        #    self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
+        #    # Call rag
+        #    ai_response = self._rag_query(
+        #        chat_history_contextualized_human_query,
+        #        retrieved_documents
+        #    )   
+        #    # Reset callbacks for normal llm usage 
+        #    self._modify_llm_params({'callbacks':None})
+#
+        #     # Add human and ai messages in chat history
+        #    self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])
+#
+        #    return ai_response
