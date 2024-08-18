@@ -39,8 +39,8 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
-chunk_size = 3000
-chunk_overlap = 300
+chunk_size = 500
+chunk_overlap = 100
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']
@@ -254,6 +254,8 @@ rag_retrieval_rerank = 'flashrank'
 rag_k_outputs_retrieval = "10"
 rag_retrieval_main_tags = []
 rag_retrieval_sub_tags = []
+
+rag_response_unrelevant_retrieved_docs = "I'm sorry, the retrieved documents are not relevant enought to provide a thorough answer."
 
 # Assuming we are in src\constants.py
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

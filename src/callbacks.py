@@ -398,23 +398,23 @@ def on_rag_input(state, id, payload):
         'rerank': False if state.rag_retrieval_rerank.lower() == 'false' else state.rag_retrieval_rerank.lower(),
         'filter_strictness': state.rag_retrieval_filter_strictness,
         'filters': filters,
-        'format_results':'rag'
     }
     # Instanciate a fresh streaming callback
     my_stream_callback = LLMResponseStreamingHandler(state)
     # Call the llm with user's query
-    ai_response = state.RAGentic.send_user_query_to_rag(
+    ai_response = state.RAGentic.rag_call(
         state.lang_user_vdb,
         rag_current_user_query,
         llm_params,
         retrieval_params,
         my_stream_callback
     )
+    
     # Append complete llm response to the conv list and display it in the app
     state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].append(ai_response)
     state.RAGentic.chat_dict['RAG']['role'].append(ai_role)
     state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict['RAG'])
-    
+
     # Activate RAG input
     state.rag_input_active = True
             

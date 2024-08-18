@@ -15,7 +15,7 @@ import sqlite3
 import easyocr
 
 from llama_parse import LlamaParse
-from langchain_community.document_loaders import PDFPlumberLoader
+from langchain_community.document_loaders import PDFMinerLoader, PDFPlumberLoader
 
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
@@ -63,6 +63,7 @@ from constants import (credentials_yaml_path,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank,
                        sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
                        retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult,
+                       rag_response_unrelevant_retrieved_docs,
                        llm_name, llm_temperature, max_chat_history_tokens
 )
 
@@ -397,7 +398,7 @@ class SentenceTransformersEmbeddings(Embeddings):
         # Convert embeddings to numpy array
         return embeddings
     
-    def embed_query(self, query, task=None, mode='semantic'):
+    def embed_query(self, query, task=None, mode='query'):
         """
         Embed a single query (sentence) using the SentenceTransformer model.
         Parameters:
@@ -433,6 +434,7 @@ class LangVdb:
                        verbose=True,
                        language="en",  # Optionally you can define a language, default=en
                        ),
+        "langchain_pdfminer": PDFMinerLoader,
         "langchain_pdfplumber": PDFPlumberLoader
         }
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
@@ -587,6 +589,17 @@ class LangVdb:
             chunk_overlap=chunk_overlap,
             length_function=len,
             is_separator_regex=False,
+            separators=[
+                "\n\n",
+                "\n",
+                ".",
+                "\u200b",  # Zero-width space
+                "\uff0c",  # Fullwidth comma
+                "\u3001",  # Ideographic comma
+                "\uff0e",  # Fullwidth full stop
+                "\u3002",  # Ideographic full stop
+                "",
+            ]
         )
         
         # Iterate over entries input, split each entry's text and accordingly create new entries
@@ -658,7 +671,7 @@ class LangVdb:
         
 
     @staticmethod
-    def _parse_PDF(pdf_path, parser_type:str = 'langchain_pdfplumber'):
+    def _parse_PDF(pdf_path, parser_type:str = 'langchain_pdfminer'):
         
         try:
             # Parse PDF
@@ -797,7 +810,7 @@ class RAGentic():
         self.chat_history = InMemoryChatMessageHistory()
         
         ############################################################################
-        # Chat history query contextualization
+        # Chat history query contextualization system prompt
         self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", chat_history_contextualize_q_system_prompt),
@@ -812,11 +825,8 @@ class RAGentic():
             | StrOutputParser()
         )
         ############################################################################
-        # Retrieved data relevant to answer the query
-        self.is_retrieved_data_relevant_prompt = PromptTemplate(
-            template=is_retrieved_data_relevant_system_prompt,
-            input_variables=["human_query", "retrieved_docs_rag"]
-        )
+        # retrieved data relevance to answer the query system prompt
+        self.is_retrieved_data_relevant_prompt = ChatPromptTemplate.from_template(is_retrieved_data_relevant_system_prompt)
         # Retrieved data relevant to answer the query chain
         self.is_retrieved_data_relevant_chain = (
             self.is_retrieved_data_relevant_prompt
@@ -824,18 +834,9 @@ class RAGentic():
             | StrOutputParser()
         )
         ############################################################################
-        
-        
-        
-        
-        self.rag_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", rag_system_prompt),
-                ("human", "{human_query}"),
-                ("human", "{retrieved_docs_rag}"),
-            ]
-        )
-        
+        # RAG system prompt
+        self.rag_prompt = ChatPromptTemplate.from_template(rag_system_prompt)
+        # RAG call with contextualized query + retrieved documents
         self.rag_chain = (
             self.rag_prompt
             | self.llm 
@@ -857,17 +858,12 @@ class RAGentic():
                 
                 
     def retrieval(self, query, lang_vdb,
-                  llm_params:Dict=None,
                   search_type:str=retrieval_search_type, k_outputs:int=k_outputs_retrieval, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
                   filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
                   format_results:Literal['str', 'rag', False, None]=False):
 
+        # Set n as number of documents to retrieve
         self.k_docs = k_outputs if k_outputs else self.k_docs
-        
-        # Update llm params
-        if isinstance(llm_params, Dict) and llm_params:
-            self._modify_llm_params(llm_params)
-        
         # Build initial search_kwargs
         search_kwargs = {'k': self.k_docs}
         # kwargs specific to "similarity_score_threshold" and "mmr"
@@ -900,12 +896,12 @@ class RAGentic():
             
         # Get retriever results
         else:
-            retrieved_docs = retriever.invoke(query)
+            retrieved_docs = retriever.get_relevant_documents(query)
         
-        print('RETRIEVED DOCS:', self._retrieval_results_str_format(retrieved_docs))
+        print('RETRIEVED DOCS:', self._retrieval_results_to_rag_format(retrieved_docs))
             
         if format_results == 'str':  
-            return self._retrieval_results_str_format(retrieved_docs) 
+            return self._retrieval_results_str_format(retrieved_docs), 
         elif format_results == 'rag':
             return self._retrieval_results_to_rag_format(retrieved_docs)
         else:
@@ -955,7 +951,7 @@ class RAGentic():
         compression_retriever = ContextualCompressionRetriever(
             base_compressor=compressor, base_retriever=base_retriever
         )       
-        retrieved_docs = compression_retriever.invoke(query)
+        retrieved_docs = compression_retriever.get_relevant_documents(query)
         return retrieved_docs
     
     def _reciprocal_ranking_fusion(self, multi_query_results: List[List], k=60):    
@@ -989,7 +985,7 @@ class RAGentic():
         # Multi query prompt for llm original query rewrite
         query_prompt_template = PromptTemplate(
             input_variables=["original_query"],
-            template=multi_query_prompt ,
+            template=multi_query_prompt,
         )
         # Chain to generate multi queries
         llm_multi_query_chain = (
@@ -1024,9 +1020,11 @@ class RAGentic():
     
     def _retrieval_results_to_rag_format(self, retrieved_docs):
         return f"\n{'-'*20}\n".join(
-                    [f"Doc_ID:{doc.metadata[entry_id_col_name]}\n\nDoc_content:{doc.page_content}" for doc in retrieved_docs]
+                    [f"**Doc_ID**:\n{doc.metadata[entry_id_col_name]}\n\n**Doc_content**:\n{doc.page_content}" for doc in retrieved_docs]
                 )
         
+    def _build_str_retrieved_doc_IDs(self, retrieved_docs):
+        return ", ".join([doc.metadata[entry_id_col_name] for doc in retrieved_docs])
     
     def _trim_chat_history(self, chat_history=None):
         messages = chat_history if chat_history else self.chat_history.messages
@@ -1059,86 +1057,75 @@ class RAGentic():
         # Return contextualized query
         return chat_history_contextualized_human_query
 
-
-        
-    def _vector_store_document_retrieval(self, human_query, lang_vdb, llm_params, retrieval_params):
-        return self.retrieval(
-            human_query, 
-            lang_vdb, 
-            llm_params=llm_params,
-            **retrieval_params
-        )
         
     def _is_retrieved_data_relevant(self, human_query, retrieved_docs_rag):
         # Get current llm temperature
         original_temperature = copy.copy(getattr(self.llm, 'temperature'))
         # Set llm temperature to 0
         self._modify_llm_params({'temperature' : 0})
-        # Use self.history_contextualize_q_chain to generate new query
-        is_retrieved_data_relevant_response = self.is_retrieved_data_relevant_chain.invoke({
-                                                      "human_query": human_query,
-                                                      "retrieved_docs_rag": retrieved_docs_rag
-                                                  })
+        # Directly invoke the LLM with the simplified prompt
+        prompt = self.is_retrieved_data_relevant_prompt.format(
+            human_query=human_query, 
+            retrieved_docs_rag=retrieved_docs_rag
+        )
+
+        print('\n\n\n', prompt, '\n\n\n')
+        is_retrieved_data_relevant_response = self.llm.invoke(prompt).content
         # Set temperature to original value
         self._modify_llm_params({'temperature' : original_temperature})
         # Return contextualized query
         return is_retrieved_data_relevant_response
-
-    def _rag_query(self, human_query, retrieved_documents):
-        return self.rag_chain.invoke({
-            "human_query": human_query,
-            "retrieved_docs_rag": retrieved_documents
-        })
-        
     
-    def send_user_query_to_rag(self, lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
+    def rag_call(self, lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
 
+        # Update llm params
+        if isinstance(llm_params, Dict) and llm_params:
+            self._modify_llm_params(llm_params)
+            
+            
         # Contextualize query based on chat history
         chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
         
         print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
         
         # Retrieve documents associated to the query
-        retrieved_documents = self._vector_store_document_retrieval(
-            chat_history_contextualized_human_query,
-            lang_vdb,
-            llm_params=llm_params,
-            retrieval_params=retrieval_params
+        retrieved_documents = self.retrieval(
+            chat_history_contextualized_human_query, 
+            lang_vdb, 
+            **retrieval_params
         )
         
-        print('\n\n\n', retrieved_documents, '\n\n\n')
+        # Build a string of retrieved doc's IDs
+        retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_documents)
+        # Format retrieved document content to pass in RAG
+        formatted_retrieved_documents = self._retrieval_results_to_rag_format(retrieved_documents)
         
+        ## Ask llm whether retrieved documents are relevant enough to adress the query
+        #is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
+        #    chat_history_contextualized_human_query,
+        #    formatted_retrieved_documents
+        #).lower()
+        #
+        #print('\n\n\nARE RETRIEVED DOCS RELEVANT :', is_retrieved_data_relevant_response, '\n\n\n')
         
-        self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
-        
-        
-        
-        
-        # Ask llm whether retrieved documents are relevant enough to adress the query
-        is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
-            chat_history_contextualized_human_query,
-            retrieved_documents
-        )
-        
-        print('\n\n\nARE RETRIEVED DOCS RELEVANT :', is_retrieved_data_relevant_response, '\n\n\n')
-        
-        return "OK"
         #if is_retrieved_data_relevant_response == 'no':
-        #    return "I'm sorry, the retrieved documents are not relevant enought to provide an thorough answer."
-        #
+        #    ai_response = rag_response_unrelevant_retrieved_docs
         #else:
-        #
-        #    # Activate streaming callback
-        #    self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
-        #    # Call rag
-        #    ai_response = self._rag_query(
-        #        chat_history_contextualized_human_query,
-        #        retrieved_documents
-        #    )   
-        #    # Reset callbacks for normal llm usage 
-        #    self._modify_llm_params({'callbacks':None})
-#
-        #     # Add human and ai messages in chat history
-        #    self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response)])
-#
-        #    return ai_response
+        # Activate streaming callback
+        self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
+        # Call rag
+        ai_response_str = self.rag_chain.invoke({
+            "human_query": chat_history_contextualized_human_query,
+            "retrieved_docs_rag": formatted_retrieved_documents
+        })
+
+        # Reset callbacks for normal llm usage 
+        self._modify_llm_params({'callbacks':None})
+
+        # Add human and ai messages in chat history
+        self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response_str)])
+        
+        # Return the ai_response with the associated retrieved_doc_IDs_str
+        return ''.join([ai_response_str, f' ___Retrieved document IDs___: {retrieved_doc_IDs_str}']) 
+
+        
