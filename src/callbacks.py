@@ -10,6 +10,7 @@ from langchain.callbacks.base import BaseCallbackHandler
 from constants import (
     notify_duration, 
     entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, 
+    sqlite_tags_separator,
     filter_strictness_choices, retrieval_search_type, rag_retrieval_search_type,
     rag_column_shown_in_table, ai_role, human_role
     )
@@ -22,22 +23,33 @@ class LLMResponseStreamingHandler(BaseCallbackHandler):
     def __init__(self, state):
         self.state = state
         self.current_llm_response_tokens = []
-        
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
+    
+    def _update_table(self, token=None, final_str=None):
         # Append response token
-        self.current_llm_response_tokens.append(token)
-        # Join all generated tokens up to now in a string
-        self.state.rag_ai_response = "".join(self.current_llm_response_tokens)
+        if token:
+            self.current_llm_response_tokens.append(token)
+            # Join all generated tokens up to now in a string
+            self.state.rag_ai_response = "".join(self.current_llm_response_tokens)
+        elif final_str:
+            self.state.rag_ai_response = final_str
         # Append in taipy's state RAG conversation list
         self.state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].append(self.state.rag_ai_response)
         self.state.RAGentic.chat_dict['RAG']['role'].append(ai_role)
         # Actualize the response shown in the app, in essence enabling streaming
         self.state.rag_conversation_table = pd.DataFrame(self.state.RAGentic.chat_dict['RAG'])
+        
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        self._update_table(token=token)
         # Remove the last string added in taipy's state RAG conversation list so that 
         # every added token doesnt count as a complete ai response
         self.state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].pop()
         self.state.RAGentic.chat_dict['RAG']['role'].pop()
         
+    def on_llm_end(self, response: str, **kwargs) -> None:
+        ai_response = "".join(self.current_llm_response_tokens)
+        final_response = f"{ai_response} ___Retrieved document IDs___: {self.state.RAGentic.last_retrieved_doc_IDs_str}"
+        self._update_table(final_str=final_response)
+
 
 
     
@@ -72,10 +84,11 @@ def style_rag(state, idx: int, row: int) -> str:
     
 
 def _get_user_tags(state):
+    print(f"--{tags}--" for tags in state.user_table[main_tags_col_name])
     # Get all unique user's main and sub-tags values
     if isinstance(state.user_table, pd.DataFrame):
-        state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list if tag)))
-        state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list if tag))) 
+        state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list.split(' ') if tag)))
+        state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list.split(' ') if tag))) 
     return state
 
 def _delete_loaded_file(file_path):
@@ -164,16 +177,15 @@ def on_text_entry_add(state, action, info):
     else:
         main_tags, sub_tags = state.main_tags, state.sub_tags
 
-    # Add entry in sqlite
-    sm.add_entry_to_sqlite(
+    lvdb.text_to_db(
         state.user_email, 
-        single_entry=lvdb.format_text_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='sqlite')
-        )
-    # Add embedded entry in vdb
-    lvdb.add_docs_to_vdb(
-        state.user_email,
-        state.lang_user_vdb, 
-        docs = lvdb.formatted_text_entries_to_docs(lvdb.format_text_entry(state.user_email, state.text_date, main_tags, sub_tags, state.text_entry, format='vdb'))
+        state.lang_user_vdb,
+        single_entry_load_kwargs={
+                'text_date':state.text_date, 
+                'main_tags':main_tags, 
+                'sub_tags':sub_tags, 
+                'text_entry':state.text_entry
+                }
         )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
@@ -204,30 +216,21 @@ def on_txt_file_load(state, id, payload):
         notify(state,'warning', 'Some fields were left empty.', duration=notify_duration)
     
     try:
-        format_kwargs = {
-            'user_id': state.user_email,
-            'file_path':state.file_path_to_load,
-            'entry_delimiter':state.entry_delimiter,
-            'file_tags_separator':state.file_tags_separator,
-            'date_delimiter':state.date_delimiter,
-            'main_tags_delimiter':state.main_tags_delimiter,
-            'sub_tags_delimiter':state.sub_tags_delimiter,
-            'text_delimiter':state.text_delimiter
-        }
 
-        # Add entry in sqlite
-        sm.add_entry_to_sqlite(
+        lvdb.text_to_db(
             state.user_email, 
-            multiple_entries=lvdb.txt_file_to_formatted_entries(**format_kwargs, format='sqlite')
+            state.lang_user_vdb,
+            text_file_load_kwargs={
+                'file_path':state.file_path_to_load,
+                'entry_delimiter':state.entry_delimiter,
+                'file_tags_separator':state.file_tags_separator,
+                'date_delimiter':state.date_delimiter,
+                'main_tags_delimiter':state.main_tags_delimiter,
+                'sub_tags_delimiter':state.sub_tags_delimiter,
+                'text_delimiter':state.text_delimiter
+                }
         )
-        
-        # Add embedded entry in vdb
-        lvdb.add_docs_to_vdb(
-            state.user_email,
-            state.lang_user_vdb, 
-            docs = lvdb.formatted_text_entries_to_docs(lvdb.txt_file_to_formatted_entries(**format_kwargs, format='vdb'))
-            )
-    
+
         # upadte table
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
@@ -353,7 +356,7 @@ def on_retrieval_query(state, id, payload):
         format_results='str'
         )
     
-
+    
 def on_rag_input(state, id, payload):  
     # If llm is generating an answer, prevent the user from adding a new query
     if not state.rag_input_active:
@@ -399,21 +402,20 @@ def on_rag_input(state, id, payload):
         'filter_strictness': state.rag_retrieval_filter_strictness,
         'filters': filters,
     }
+    
+    
+    print('\n\n\n', 'RETRIEVAL PARAMS: ', retrieval_params, '\n\n\n')
+    
     # Instanciate a fresh streaming callback
     my_stream_callback = LLMResponseStreamingHandler(state)
     # Call the llm with user's query
-    ai_response = state.RAGentic.rag_call(
+    ai_response_str, retrieved_doc_IDs_str = state.RAGentic.rag_call(
         state.lang_user_vdb,
         rag_current_user_query,
         llm_params,
         retrieval_params,
         my_stream_callback
     )
-    
-    # Append complete llm response to the conv list and display it in the app
-    state.RAGentic.chat_dict['RAG'][rag_column_shown_in_table].append(ai_response)
-    state.RAGentic.chat_dict['RAG']['role'].append(ai_role)
-    state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict['RAG'])
 
     # Activate RAG input
     state.rag_input_active = True

@@ -20,7 +20,6 @@ from langchain_community.document_loaders import PDFMinerLoader, PDFPlumberLoade
 from sentence_transformers import SentenceTransformer
 from langchain_core.documents import Document
 from langchain.embeddings.base import Embeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.indexes import SQLRecordManager, index
 from langchain_community.document_loaders import TextLoader
 ## Vector databases
@@ -52,13 +51,14 @@ from langchain.schema import StrOutputParser
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 ## Callbacks (streaming repsonse)
 from langchain.callbacks.manager import CallbackManager
-from langchain.callbacks.base import BaseCallbackHandler
+# 
+from langchain_core.runnables import RunnablePassthrough
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
                        entry_id_col_name, chunked_entry_id_col, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
-                       chunk_size, chunk_overlap,
+                       chunk_size, chunk_overlap, chunk_separators, recursive_character_text_splitter,
                        device,
                        vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank,
                        sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
@@ -170,14 +170,14 @@ class YamlManagment():
             data = yaml.safe_load(file)  
         if not data.get('user_loaded_pdfs', None):
             data['user_loaded_pdfs'] = {}
-        return data['user_loaded_pdfs'].get(user_id, {})
+        return str(data['user_loaded_pdfs'].get(user_id, {}))
 
     @staticmethod
     def get_entry_id_and_increment(user_id):
         entry_id = YamlManagment._get_user_n_entry_id(user_id)            
         # Actualize n entries in yaml
         YamlManagment._increment_user_n_entry_id(user_id, 1)
-        return entry_id 
+        return str(entry_id) 
             
             
             
@@ -486,27 +486,36 @@ class LangVdb:
     ### TEXT ENTRY HANDLER ###
     ### TEXT ENTRY HANDLER ###
     @staticmethod
-    def _format_tags_list_to_str_sql_entry(tags_list):
-        return f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in tags_list]) if isinstance(tags_list, List) else tags_list
-
+    def text_to_db(user_id, vdb, 
+                   single_entry_load_kwargs:Dict=None, text_file_load_kwargs:Dict=None,
+                   vdb_add=True, sqlite_add=True
+                   ):
+        
+        if single_entry_load_kwargs:
+            entry = LangVdb.format_text_entry(user_id, **single_entry_load_kwargs)
+            docs = LangVdb.formatted_text_entries_to_docs([entry])
+            
+        elif text_file_load_kwargs:
+            entries = LangVdb.txt_file_to_formatted_entries(user_id, **text_file_load_kwargs)
+            docs = LangVdb.formatted_text_entries_to_docs(entries)
+        
+        # Add in vdb
+        if vdb_add:
+            LangVdb._index_docs_to_vdb(user_id, vdb, docs, source_id_key=entry_id_col_name)
+        # Add in sqlite
+        if sqlite_add:
+            LangVdb._docs_to_sqlite(user_id, docs)
     
     @staticmethod
-    def format_text_entry(user_id, text_date, main_tags, sub_tags, text_entry, format:Literal['sqlite', 'vdb']='sqlite'):
+    def format_text_entry(user_id, text_date, main_tags, sub_tags, text_entry):
         """
         FORMAT SINGLE ENTRY (USER TEXT) TO SQL OR VDB FORMAT
         """
-        
-        # Format tag lists as str (sqlite cannot save list)
-        if format == 'sqlite':
-            main_tags = LangVdb._format_tags_list_to_str_sql_entry(main_tags)
-            sub_tags = LangVdb._format_tags_list_to_str_sql_entry(sub_tags)
-
         # Get doc's id and increment
         entry_id = YamlManagment.get_entry_id_and_increment(user_id)
 
         return {     
             entry_id_col_name: entry_id,   
-            chunked_entry_id_col: f"{entry_id}.0",
             date_col_name: text_date,
             main_tags_col_name: main_tags,
             sub_tags_col_name: sub_tags,
@@ -515,8 +524,7 @@ class LangVdb:
         }
 
     @staticmethod
-    def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter, 
-                                      format:Literal['sqlite', 'vdb']='sqlite'):
+    def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter):
         """
         FORMAT ENTRIES (USER TEXT) FROM TEXT FILE TO SQL OR VDB FORMAT
         """
@@ -543,7 +551,7 @@ class LangVdb:
                     text = ' '.join(lines[i:]).replace(text_delimiter, '')
 
             # Format entry
-            return LangVdb.format_text_entry(user_id, date, main_tags, sub_tags, text, format=format)
+            return LangVdb.format_text_entry(user_id, date, main_tags, sub_tags, text)
 
 
         # Open and read the file
@@ -561,89 +569,40 @@ class LangVdb:
         """
         CONVERT VDB FORMATTED TEXT ENTRIES TO DOCUMENTS
         """
-        # Split text and create corresponding entries (and chunked_entry_id)
-        splitted_formatted_entries = LangVdb._recursively_split_formatted_entries(formatted_entries)
-        # Convert entries to Document
-        return LangVdb._texts_to_documents(splitted_formatted_entries)
-    
-    @staticmethod
-    def _recursively_split_formatted_entries(entries):
-        def _create_new_entries(entry):
-            # Split the entry text
-            splitted_text = text_splitter.split_text(entry[text_col_name])
-            # Create new entries with splitted text (while combining entry_id and child_id as "entry_id.child_id")
-            return [
-                {
-                    entry_id_col_name: entry[entry_id_col_name],
-                    chunked_entry_id_col: f"{entry[entry_id_col_name]}.{child_id}",
-                    date_col_name: entry[date_col_name], 
-                    main_tags_col_name: entry[main_tags_col_name],
-                    sub_tags_col_name: entry[sub_tags_col_name],
-                    doc_type_col_name: entry[doc_type_col_name],
-                    text_col_name: text
-                } for child_id, text in enumerate(splitted_text, start=1)
-            ] 
-               
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len,
-            is_separator_regex=False,
-            separators=[
-                "\n\n",
-                "\n",
-                ".",
-                "\u200b",  # Zero-width space
-                "\uff0c",  # Fullwidth comma
-                "\u3001",  # Ideographic comma
-                "\uff0e",  # Fullwidth full stop
-                "\u3002",  # Ideographic full stop
-                "",
-            ]
-        )
         
-        # Iterate over entries input, split each entry's text and accordingly create new entries
-        # with splitted text while conserving original entry's metadata. The list of new entries is returned.
-        return [new_entry for entry in entries for new_entry in _create_new_entries(entry)] if entries else None
-
-    @staticmethod
-    def _texts_to_documents(entries:Union[List[dict], dict, None]):
-        if not entries:
+        entries = [entry for entry in formatted_entries if entry.get(text_col_name, None)]
+        
+        if not entries: 
             return None
         
-        elif isinstance(entries, List):
-            entries = [entry for entry in entries if entry.get(text_col_name, None)]
-            return [
-                Document(
-                    page_content=entry_dict[text_col_name], 
-                    metadata={
-                        entry_id_col_name: entry_dict[entry_id_col_name],
-                        chunked_entry_id_col: entry_dict[chunked_entry_id_col],
-                        date_col_name: entry_dict[date_col_name], 
-                        main_tags_col_name: entry_dict[main_tags_col_name],
-                        sub_tags_col_name: entry_dict[sub_tags_col_name],
-                        doc_type_col_name: entry_dict[doc_type_col_name]
-                        }
-                    ) for entry_dict in entries
-                ] if entries else None
+        formatted_chunked_documents = [] 
+        for entry_dict in entries:
+            generated_document = Document(
+                page_content=entry_dict[text_col_name], 
+                metadata={
+                    entry_id_col_name: entry_dict[entry_id_col_name],
+                    date_col_name: entry_dict[date_col_name], 
+                    main_tags_col_name: entry_dict[main_tags_col_name],
+                    sub_tags_col_name: entry_dict[sub_tags_col_name],
+                    doc_type_col_name: entry_dict[doc_type_col_name]
+                }
+            )
 
-        else:
-            return [
-                Document(
-                    page_content=entries[text_col_name], 
-                    metadata={
-                        entry_id_col_name: entries[entry_id_col_name],
-                        chunked_entry_id_col: entries[chunked_entry_id_col],
-                        date_col_name: entries[date_col_name], 
-                        main_tags_col_name: entries[main_tags_col_name],
-                        sub_tags_col_name: entries[sub_tags_col_name],
-                        doc_type_col_name: entries[doc_type_col_name]
-                        }
-                    )
-            ] if entries.get(text_col_name, None) else None
+            chunked_docs = recursive_character_text_splitter.split_documents([generated_document])
+            
+            print(chunked_docs)
+            
+            for i, doc in enumerate(chunked_docs, start=0):
+                doc.metadata[chunked_entry_id_col] = f"{entry_dict[entry_id_col_name]}.{i}"
+                formatted_chunked_documents.append(doc)
+                
+        return formatted_chunked_documents
 
 
-        
+
+
+
+            
 
     ### PDF HANDLER ###
     ### PDF HANDLER ###
@@ -697,29 +656,38 @@ class LangVdb:
                 os.remove(txt_file_path)
             # Else using one of langchain's pdf loader
             else:
-                loader = parser(pdf_path)
+                loader = parser(pdf_path,
+                                concatenate_pages=True)
                 documents = loader.load()
             # Split loaded documents into chunks
-            return RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap).split_documents(documents)
+            return recursive_character_text_splitter.split_documents(documents)
 
             
         except Exception as e:
             print(f"_parse_PDF fail: {e}")
 
 
+
+
+
+
+
+    ### COMMON TO TEXT AND PDF LOADING
     
     @staticmethod
     def _format_chunked_docs(entry_id, chunked_docs:list, doc_date, main_tags, sub_tags, doc_type):
             
-        for i, doc in enumerate(chunked_docs, start=1):
+        for i, doc in enumerate(chunked_docs, start=0):
             # Add metadata
-            doc.metadata[entry_id_col_name] = f"{entry_id}.{i}"
+            doc.metadata[entry_id_col_name] = f"{entry_id}"
+            doc.metadata[chunked_entry_id_col] = f"{entry_id}.{i}"
             doc.metadata[date_col_name] = doc_date
             doc.metadata[main_tags_col_name] = main_tags
             doc.metadata[sub_tags_col_name] = sub_tags
             doc.metadata[doc_type_col_name] = doc_type
 
         return chunked_docs
+
 
                      
     @staticmethod
@@ -739,10 +707,15 @@ class LangVdb:
         )
 
     @staticmethod
+    def _format_tags_list_to_str_sql_entry(tags_list):
+        return f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in tags_list]) if isinstance(tags_list, List) else tags_list
+    
+    @staticmethod
     def _docs_to_sqlite(user_id, docs):
         list_entries = [
             {
                 entry_id_col_name: doc.metadata[entry_id_col_name],   
+                chunked_entry_id_col: doc.metadata[chunked_entry_id_col],  
                 date_col_name: doc.metadata[date_col_name],
                 main_tags_col_name: LangVdb._format_tags_list_to_str_sql_entry(doc.metadata[main_tags_col_name]),
                 sub_tags_col_name: LangVdb._format_tags_list_to_str_sql_entry(doc.metadata[sub_tags_col_name]),
@@ -809,6 +782,10 @@ class RAGentic():
         # Chat history
         self.chat_history = InMemoryChatMessageHistory()
         
+        # Retriever to use
+        self.retrieved_docs = ''
+        # Last retrieved_doc_IDs_str
+        self.last_retrieved_doc_IDs_str = ''
         ############################################################################
         # Chat history query contextualization system prompt
         self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
@@ -855,8 +832,7 @@ class RAGentic():
                 setattr(self.llm, param_name, param_value)
             except Exception as e:
                 print(f"_modify_llm_params fail for param {param_name}: {e}")
-                
-                
+                  
     def retrieval(self, query, lang_vdb,
                   search_type:str=retrieval_search_type, k_outputs:int=k_outputs_retrieval, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
                   filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
@@ -897,9 +873,11 @@ class RAGentic():
         # Get retriever results
         else:
             retrieved_docs = retriever.get_relevant_documents(query)
-        
-        print('RETRIEVED DOCS:', self._retrieval_results_to_rag_format(retrieved_docs))
             
+        print(retrieved_docs)
+        self.last_retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_docs)
+        self.retrieved_docs = self._retrieval_results_to_rag_format(retrieved_docs)
+        
         if format_results == 'str':  
             return self._retrieval_results_str_format(retrieved_docs), 
         elif format_results == 'rag':
@@ -925,23 +903,32 @@ class RAGentic():
         
         for filter_name, filter_value in filters.items():
             if filter_name in available_filters and filter_value:
-                # If strictness = any tags
-                if filter_strictness == filter_strictness_choices[0]:
-                    
-                    if isinstance(filter_value, list):
-                        # Must match at least one of the values in filter
-                        must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
-                    # For other typer of filters such as date
-                    #else:
-                    #    must_conditions.append(_create_field_condition(filter_name, filter_value))
-
-                # Elif all tags must be present
-                elif filter_strictness == filter_strictness_choices[1]:
+                # If filter based on file ID
+                if filter_name == entry_id_col_name:
                     if isinstance(filter_value, list):
                         # iterate over each tag and check if all of these are present in metadata
                         for value in filter_value:
-                            must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
+                            must_conditions.append(FieldCondition(key=f"metadata.{filter_name}", match=MatchValue(value=value)))
+                # Else filter based on TAGs
+                else:    
+                    # If strictness = any tags
+                    if filter_strictness == filter_strictness_choices[0]:
+
+                        if isinstance(filter_value, list):
+                            # Must match at least one of the values in filter
+                            must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
+                        # For other typer of filters such as date
+                        #else:
+                        #    must_conditions.append(_create_field_condition(filter_name, filter_value))
+
+                    # Elif all tags must be present
+                    elif filter_strictness == filter_strictness_choices[1]:
+                        if isinstance(filter_value, list):
+                            # iterate over each tag and check if all of these are present in metadata
+                            for value in filter_value:
+                                must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
             
+        print('FILTERS: ', must_conditions)
         return Filter(must=must_conditions)
     
 
@@ -1024,7 +1011,7 @@ class RAGentic():
                 )
         
     def _build_str_retrieved_doc_IDs(self, retrieved_docs):
-        return ", ".join([doc.metadata[entry_id_col_name] for doc in retrieved_docs])
+        return ", ".join([doc.metadata[entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
     
     def _trim_chat_history(self, chat_history=None):
         messages = chat_history if chat_history else self.chat_history.messages
@@ -1069,7 +1056,6 @@ class RAGentic():
             retrieved_docs_rag=retrieved_docs_rag
         )
 
-        print('\n\n\n', prompt, '\n\n\n')
         is_retrieved_data_relevant_response = self.llm.invoke(prompt).content
         # Set temperature to original value
         self._modify_llm_params({'temperature' : original_temperature})
@@ -1100,6 +1086,10 @@ class RAGentic():
         # Format retrieved document content to pass in RAG
         formatted_retrieved_documents = self._retrieval_results_to_rag_format(retrieved_documents)
         
+        print('RETRIEVED DOCS:', self._retrieval_results_to_rag_format(retrieved_documents), '\n\n')
+        
+        print('RETRIEVED DOC IDS:', retrieved_doc_IDs_str)       
+        
         ## Ask llm whether retrieved documents are relevant enough to adress the query
         #is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
         #    chat_history_contextualized_human_query,
@@ -1115,8 +1105,8 @@ class RAGentic():
         self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
         # Call rag
         ai_response_str = self.rag_chain.invoke({
-            "human_query": chat_history_contextualized_human_query,
-            "retrieved_docs_rag": formatted_retrieved_documents
+            "question": chat_history_contextualized_human_query,
+            "context": formatted_retrieved_documents
         })
 
         # Reset callbacks for normal llm usage 
@@ -1126,6 +1116,6 @@ class RAGentic():
         self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response_str)])
         
         # Return the ai_response with the associated retrieved_doc_IDs_str
-        return ''.join([ai_response_str, f' ___Retrieved document IDs___: {retrieved_doc_IDs_str}']) 
-
+        #return ''.join([ai_response_str, f'___Retrieved document IDs___: {retrieved_doc_IDs_str}']) 
+        return ai_response_str, retrieved_doc_IDs_str
         

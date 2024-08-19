@@ -85,7 +85,7 @@ with tgb.Page() as root_page:
              lov=[
                  ('/'+page_ids['chose_task'], '---'),
                  ('/'+page_ids['retrieve_data'], Icon('/images/data_retrieval.png', 'Retrieve tagged data')),
-                 ('/'+page_ids['manage_data'], Icon('/images/data_managment.png', 'Manage your data')),
+                 ('/'+page_ids['load_data'], Icon('/images/data_managment.png', 'Load your data')),
                  ('/'+page_ids['rag'], Icon('/images/rag.png', 'RAG')),  
                 ]
              )
@@ -97,7 +97,7 @@ with tgb.Page() as chose_task:
         tgb.text(' ')
         tgb.text('## Welcome! Please choose your task.', mode="md")
 
-with tgb.Page() as manage_data:
+with tgb.Page() as load_data:
     tgb.text("## Add a single entry:", mode="md")
     with tgb.layout("1 1 1 1 1 1"):
         tgb.input("{text_date}", label='Text date')
@@ -229,7 +229,7 @@ with tgb.Page() as rag:
                          multiple=False, dropdown=True, label='Documents considered')
             
             tgb.selector(value="{rag_considered_pdfs}", 
-                         lov="{user_pdf_names_ids.keys()}", 
+                         lov="{list(user_pdf_names_ids.keys())}", 
                          multiple=True, dropdown=True, label='PDFs considered')
 
             tgb.selector(value="{rag_retrieval_search_type}", 

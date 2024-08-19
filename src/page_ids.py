@@ -7,7 +7,7 @@ pages_names = [
     'log_in',
     'root_page', 
     'chose_task',
-    'manage_data',
+    'load_data',
     'retrieve_data',
     'rag'
 ]

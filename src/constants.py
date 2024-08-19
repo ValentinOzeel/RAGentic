@@ -5,6 +5,8 @@ import torch
 
 from typing import Tuple
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 ###                    ###               
 ### SignLog constants  ###
 ###                    ###
@@ -39,8 +41,21 @@ filter_strictness = filter_strictness_choices[0]
 filter_main_tags = []
 filter_sub_tags = []
 
-chunk_size = 500
-chunk_overlap = 100
+chunk_size = 1024
+chunk_overlap = 256
+chunk_separators = [
+    "\n\n",
+    "\n",
+    ".",
+]
+recursive_character_text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            is_separator_regex=False,
+            separators=chunk_separators
+           )
+
+
 
 retrieval_query = ''
 retrieval_search_type_possibilities = ['similarity', 'similarity_score_threshold', 'mmr']

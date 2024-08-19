@@ -8,7 +8,7 @@ from pages import (
     log_in,
     root_page, 
     chose_task,
-    manage_data, 
+    load_data, 
     retrieve_data, 
     rag
     )
@@ -28,7 +28,7 @@ if __name__ == "__main__":
         page_ids["log_in"]: log_in,
         page_ids["root_page"]: root_page,
         page_ids["chose_task"]: chose_task,
-        page_ids["manage_data"]: manage_data,
+        page_ids["load_data"]: load_data,
         page_ids["retrieve_data"]: retrieve_data,
         page_ids["rag"]: rag
     }
