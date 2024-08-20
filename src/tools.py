@@ -56,7 +56,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 from constants import (credentials_yaml_path, 
                        image_to_text_languages,
-                       entry_id_col_name, chunked_entry_id_col, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, text_col_name,
+                       entry_id_col_name, chunked_entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, text_col_name,
                        sqlite_database_path, sqlite_tags_separator,
                        chunk_size, chunk_overlap, chunk_separators, recursive_character_text_splitter,
                        device,
@@ -170,7 +170,7 @@ class YamlManagment():
             data = yaml.safe_load(file)  
         if not data.get('user_loaded_pdfs', None):
             data['user_loaded_pdfs'] = {}
-        return str(data['user_loaded_pdfs'].get(user_id, {}))
+        return data['user_loaded_pdfs'].get(user_id, {})
 
     @staticmethod
     def get_entry_id_and_increment(user_id):
@@ -220,11 +220,31 @@ class SignLog():
 
 
 
+### OCR FUNCTION ###
+### OCR FUNCTION ###
+### OCR FUNCTION ###
+def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
+
+    gpu = True if cpu_or_gpu == 'GPU' else False
+    languages = [image_to_text_languages[selected_languages]] if isinstance(selected_languages, str) else [
+        image_to_text_languages[language] for language in selected_languages
+        ] 
+
+    reader = easyocr.Reader(languages, gpu=gpu)
+    result = reader.readtext(image_path)
+
+    whole_text = ' '.join([text for (bbox, text, prob) in result])
+    
+    return whole_text
 
 
 
 
 
+
+### SQLITE DB MANAGMENT CLASS ###
+### SQLITE DB MANAGMENT CLASS ###
+### SQLITE DB MANAGMENT CLASS ###
 class SQLiteManagment:
     '''
     In an application where multiple users can access the database, 
@@ -254,6 +274,7 @@ class SQLiteManagment:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT NOT NULL,
                     {entry_id_col_name} TEXT NOT NULL,
+                    {chunked_entry_id_col_name} TEXT NOT NULL,
                     {date_col_name} TEXT,
                     {main_tags_col_name} TEXT,
                     {sub_tags_col_name} TEXT,
@@ -294,6 +315,7 @@ class SQLiteManagment:
                         values = (
                             user_id,
                             single_entry.get(entry_id_col_name, None),
+                            single_entry.get(chunked_entry_id_col_name, None),
                             single_entry.get(date_col_name, None),
                             single_entry.get(main_tags_col_name, None),
                             single_entry.get(sub_tags_col_name, None),
@@ -301,8 +323,8 @@ class SQLiteManagment:
                             single_entry.get(text_col_name, None)
                         )
                         cursor.execute(f'''
-                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO entries (user_id, {entry_id_col_name}, {chunked_entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ''', values)
       
                     elif multiple_entries:                        
@@ -310,6 +332,7 @@ class SQLiteManagment:
                             (
                                 user_id,
                                 entry.get(entry_id_col_name, None),
+                                entry.get(chunked_entry_id_col_name, None),
                                 entry.get(date_col_name, None),
                                 entry.get(main_tags_col_name, None),
                                 entry.get(sub_tags_col_name, None),
@@ -319,8 +342,8 @@ class SQLiteManagment:
                             for entry in multiple_entries if not ignore_if_empty(entry)
                         ]
                         cursor.executemany(f'''
-                            INSERT INTO entries (user_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO entries (user_id, {entry_id_col_name}, {chunked_entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name})
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ''', entries_to_add)
                     conn.commit()
                 break  # Exit the retry loop if successful
@@ -339,7 +362,7 @@ class SQLiteManagment:
         try:
             with SQLiteManagment.get_db_connection() as conn:
                 query = f'''
-                    SELECT id as text_id, {entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name} 
+                    SELECT id as {entry_id_col_name}, {chunked_entry_id_col_name}, {date_col_name}, {main_tags_col_name}, {sub_tags_col_name}, {doc_type_col_name}, {text_col_name} 
                     FROM entries 
                     WHERE user_id = ? 
                     ORDER BY id
@@ -355,30 +378,9 @@ class SQLiteManagment:
         
 
 
-
-        
-        
-        
-def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
-
-    gpu = True if cpu_or_gpu == 'GPU' else False
-    languages = [image_to_text_languages[selected_languages]] if isinstance(selected_languages, str) else [
-        image_to_text_languages[language] for language in selected_languages
-        ] 
-
-    reader = easyocr.Reader(languages, gpu=gpu)
-    result = reader.readtext(image_path)
-
-    whole_text = ' '.join([text for (bbox, text, prob) in result])
-    
-    return whole_text
-
-
-
-
-
-
-
+### EMBEDDINGS CLASS ###
+### EMBEDDINGS CLASS ###
+### EMBEDDINGS CLASS ###
 
 class SentenceTransformersEmbeddings(Embeddings):
     def __init__(self, model_name: str = embeddings_model_name):
@@ -419,10 +421,9 @@ class SentenceTransformersEmbeddings(Embeddings):
 
 
 
-
-
-
-
+### VECTOR DATABASE MANAGMENT CLASS ###
+### VECTOR DATABASE MANAGMENT CLASS ###
+### VECTOR DATABASE MANAGMENT CLASS ###
 class LangVdb:
     _vdb : Literal['qdrant', 'milvus'] = vdb
     
@@ -437,11 +438,10 @@ class LangVdb:
         "langchain_pdfminer": PDFMinerLoader,
         "langchain_pdfplumber": PDFPlumberLoader
         }
+    
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
     #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
-
-        
 
     @staticmethod
     def _initialize_vdb_collection(user_id):        
@@ -479,8 +479,7 @@ class LangVdb:
             LangVdb._initialize_vdb_collection(user_id)
         return QdrantVectorStore.from_existing_collection(**vector_store_params)
         
-        
-        
+         
         
     ### TEXT ENTRY HANDLER ###
     ### TEXT ENTRY HANDLER ###
@@ -590,24 +589,16 @@ class LangVdb:
 
             chunked_docs = recursive_character_text_splitter.split_documents([generated_document])
             
-            print(chunked_docs)
-            
             for i, doc in enumerate(chunked_docs, start=0):
-                doc.metadata[chunked_entry_id_col] = f"{entry_dict[entry_id_col_name]}.{i}"
+                doc.metadata[chunked_entry_id_col_name] = f"{entry_dict[entry_id_col_name]}.{i}"
                 formatted_chunked_documents.append(doc)
                 
         return formatted_chunked_documents
-
-
-
-
-
-            
+   
 
     ### PDF HANDLER ###
     ### PDF HANDLER ###
     ### PDF HANDLER ###
-    
     @staticmethod
     def pdf_to_db(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags, vdb_add=True, sqlite_add=True):
         """
@@ -668,28 +659,23 @@ class LangVdb:
 
 
 
-
-
-
-
-    ### COMMON TO TEXT AND PDF LOADING
-    
+    ### COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
+    ### COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
+    ### COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
     @staticmethod
     def _format_chunked_docs(entry_id, chunked_docs:list, doc_date, main_tags, sub_tags, doc_type):
             
         for i, doc in enumerate(chunked_docs, start=0):
             # Add metadata
             doc.metadata[entry_id_col_name] = f"{entry_id}"
-            doc.metadata[chunked_entry_id_col] = f"{entry_id}.{i}"
+            doc.metadata[chunked_entry_id_col_name] = f"{entry_id}.{i}"
             doc.metadata[date_col_name] = doc_date
             doc.metadata[main_tags_col_name] = main_tags
             doc.metadata[sub_tags_col_name] = sub_tags
             doc.metadata[doc_type_col_name] = doc_type
 
         return chunked_docs
-
-
-                     
+         
     @staticmethod
     def _index_docs_to_vdb(user_id, vdb, docs, source_id_key="source"):
         namespace = f"{LangVdb._vdb}/{user_id}"
@@ -715,7 +701,7 @@ class LangVdb:
         list_entries = [
             {
                 entry_id_col_name: doc.metadata[entry_id_col_name],   
-                chunked_entry_id_col: doc.metadata[chunked_entry_id_col],  
+                chunked_entry_id_col_name: doc.metadata[chunked_entry_id_col_name],  
                 date_col_name: doc.metadata[date_col_name],
                 main_tags_col_name: LangVdb._format_tags_list_to_str_sql_entry(doc.metadata[main_tags_col_name]),
                 sub_tags_col_name: LangVdb._format_tags_list_to_str_sql_entry(doc.metadata[sub_tags_col_name]),
@@ -725,45 +711,11 @@ class LangVdb:
         ]
         SQLiteManagment.add_entry_to_sqlite(user_id, multiple_entries=list_entries)
 
-        
-    ### DOCUMENTS INDEXING IN VDB ###
-    ### DOCUMENTS INDEXING IN VDB ###
-    ### DOCUMENTS INDEXING IN VDB ###
-
-    @staticmethod
-    def add_docs_to_vdb(user_id, vdb, docs:List):
-        """
-        INDEX DOCUMENTS IN VECTOR DATABASE
-        """
-        if docs:
-            ## Add documents in vector store
-            #vdb.add_documents(documents=documents_entries)
-            
-            namespace = f"{LangVdb._vdb}/{user_id}"
-            record_manager = SQLRecordManager(
-                namespace, db_url=sql_record_manager_path
-            )
-            record_manager.create_schema()
-        
-            # Index documents in vector store
-            index(
-                docs,
-                record_manager,
-                vdb,
-                cleanup="incremental",
-                source_id_key=entry_id_col_name,
-            )
- 
- 
- 
- 
-
-#RAG:
-#KEEP TRACK OF LOADED PDF FOR ADD FILTER "filename" in RAG
-#ADD PDF DOCS IN SQL TOOO
-#MOVE RETRIEVAL IN RAG CLASS
 
 
+### RAG CLASS ###
+### RAG CLASS ###
+### RAG CLASS ###
 class RAGentic():
     
     def __init__(self):
@@ -786,6 +738,8 @@ class RAGentic():
         self.retrieved_docs = ''
         # Last retrieved_doc_IDs_str
         self.last_retrieved_doc_IDs_str = ''
+        
+        
         ############################################################################
         # Chat history query contextualization system prompt
         self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
@@ -874,7 +828,6 @@ class RAGentic():
         else:
             retrieved_docs = retriever.get_relevant_documents(query)
             
-        print(retrieved_docs)
         self.last_retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_docs)
         self.retrieved_docs = self._retrieval_results_to_rag_format(retrieved_docs)
         
@@ -903,12 +856,14 @@ class RAGentic():
         
         for filter_name, filter_value in filters.items():
             if filter_name in available_filters and filter_value:
-                # If filter based on file ID
+                
+                # If filter based on pdf file ID
                 if filter_name == entry_id_col_name:
                     if isinstance(filter_value, list):
-                        # iterate over each tag and check if all of these are present in metadata
+                        # iterate over each ID and check if all of these are present in metadata
                         for value in filter_value:
                             must_conditions.append(FieldCondition(key=f"metadata.{filter_name}", match=MatchValue(value=value)))
+                            
                 # Else filter based on TAGs
                 else:    
                     # If strictness = any tags
@@ -928,7 +883,7 @@ class RAGentic():
                             for value in filter_value:
                                 must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
             
-        print('FILTERS: ', must_conditions)
+
         return Filter(must=must_conditions)
     
 
@@ -1007,11 +962,11 @@ class RAGentic():
     
     def _retrieval_results_to_rag_format(self, retrieved_docs):
         return f"\n{'-'*20}\n".join(
-                    [f"**Doc_ID**:\n{doc.metadata[entry_id_col_name]}\n\n**Doc_content**:\n{doc.page_content}" for doc in retrieved_docs]
+                    [f"**Doc_ID**:\n{doc.metadata[chunked_entry_id_col_name]}\n\n**Doc_content**:\n{doc.page_content}" for doc in retrieved_docs]
                 )
         
     def _build_str_retrieved_doc_IDs(self, retrieved_docs):
-        return ", ".join([doc.metadata[entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
+        return ", ".join([doc.metadata[chunked_entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
     
     def _trim_chat_history(self, chat_history=None):
         messages = chat_history if chat_history else self.chat_history.messages

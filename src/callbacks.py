@@ -249,14 +249,19 @@ def on_txt_file_load(state, id, payload):
         
 def on_pdf_file_load(state, id, payload):
     if state.pdf_tags_separator:
-        pdf_main_tags = [
-            tag for tag in state.pdf_main_tags.split(state.pdf_tags_separator) if state.pdf_tags_separator in state.pdf_main_tags
-            ] if state.pdf_main_tags else state.pdf_main_tags
+        pdf_main_tags = (
+            state.pdf_main_tags.split(state.pdf_tags_separator) 
+            if state.pdf_tags_separator in state.pdf_main_tags 
+            else [state.pdf_main_tags]
+        ) if state.pdf_main_tags else []
         
-        pdf_sub_tags = [
-            tag for tag in state.pdf_sub_tags.split(state.pdf_tags_separator) if state.pdf_tags_separator in state.pdf_sub_tags
-            ] if state.pdf_sub_tags else state.pdf_sub_tags
+        pdf_sub_tags = (
+            state.pdf_sub_tags.split(state.pdf_tags_separator)
+            if state.pdf_tags_separator in state.pdf_sub_tags
+            else [state.pdf_sub_tags]
+        ) if state.pdf_sub_tags else []
         
+
     else:
         pdf_main_tags, pdf_sub_tags = state.pdf_main_tags, state.pdf_sub_tags
 

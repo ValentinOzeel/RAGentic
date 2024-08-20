@@ -101,7 +101,7 @@ with tgb.Page() as load_data:
     tgb.text("## Add a single entry:", mode="md")
     with tgb.layout("1 1 1 1 1 1"):
         tgb.input("{text_date}", label='Text date')
-        tgb.input("{tags_separator}", label='Separator (fill fields with several values)')
+        tgb.input("{tags_separator}", label='Separator (to fill other fields with several values)')
         tgb.input("{main_tags}", label='Main tags')
         tgb.input("{sub_tags}", label='Sub tags')
         tgb.input("{text_entry}", label='Text to add*')
@@ -138,7 +138,7 @@ with tgb.Page() as load_data:
     tgb.text("## Load a PDF file:", mode="md")
     with tgb.layout("1 1 1 1 1"):
         tgb.input("{pdf_date}", label='PDF date')
-        tgb.input("{pdf_tags_separator}", label='Separator (fill fields with several values)')
+        tgb.input("{pdf_tags_separator}", label='Separator (to fill other fields with several values)')
         tgb.input("{pdf_main_tags}", label='Main tags')
         tgb.input("{pdf_sub_tags}", label='Sub tags')
         tgb.file_selector("{pdf_path_to_load}", 
