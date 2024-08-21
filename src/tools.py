@@ -716,6 +716,372 @@ class LangVdb:
 ### RAG CLASS ###
 ### RAG CLASS ###
 ### RAG CLASS ###
+#class RAGentic():
+#    
+#    def __init__(self):
+#        # Local Chat LLM
+#        self.llm = ChatOllama(
+#            model=llm_name,
+#            temperature=llm_temperature
+#        )
+#        
+#        # n docs retrieval
+#        self.k_docs = k_outputs_retrieval
+#        
+#        # Chat strings for incremental display in app
+#        self.chat_dict = {}
+#        
+#        # Chat history
+#        self.chat_history = InMemoryChatMessageHistory()
+#        
+#        # Retriever to use
+#        self.retrieved_docs = ''
+#        # Last retrieved_doc_IDs_str
+#        self.last_retrieved_doc_IDs_str = ''
+#        
+#        
+#        ############################################################################
+#        # Chat history query contextualization system prompt
+#        self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
+#            [
+#                ("system", chat_history_contextualize_q_system_prompt),
+#                MessagesPlaceholder("chat_history"),
+#                ("human", "{human_query}"),
+#            ]
+#        )
+#        # Chat history query contextualization chain
+#        self.chat_history_contextualize_q_chain = (
+#            self.chat_history_contextualize_q_prompt
+#            | self.llm
+#            | StrOutputParser()
+#        )
+#        ############################################################################
+#        # retrieved data relevance to answer the query system prompt
+#        self.is_retrieved_data_relevant_prompt = ChatPromptTemplate.from_template(is_retrieved_data_relevant_system_prompt)
+#        # Retrieved data relevant to answer the query chain
+#        self.is_retrieved_data_relevant_chain = (
+#            self.is_retrieved_data_relevant_prompt
+#            | self.llm
+#            | StrOutputParser()
+#        )
+#        ############################################################################
+#        # RAG system prompt
+#        self.rag_prompt = ChatPromptTemplate.from_template(rag_system_prompt)
+#        # RAG call with contextualized query + retrieved documents
+#        self.rag_chain = (
+#            self.rag_prompt
+#            | self.llm 
+#            | StrOutputParser()
+#        )
+#        
+#
+#
+#
+#    def _get_chat_history_content(self):
+#        return [msg.content for msg in self.chat_history.messages]
+#    
+#    def _modify_llm_params(self, params:Dict): 
+#        for param_name, param_value in params.items():
+#            try:    
+#                setattr(self.llm, param_name, param_value)
+#            except Exception as e:
+#                print(f"_modify_llm_params fail for param {param_name}: {e}")
+#                  
+#    def retrieval(self, query, lang_vdb,
+#                  search_type:str=retrieval_search_type, k_outputs:int=k_outputs_retrieval, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
+#                  filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
+#                  format_results:Literal['str', 'rag', False, None]=False):
+#
+#        # Set n as number of documents to retrieve
+#        self.k_docs = k_outputs if k_outputs else self.k_docs
+#        # Build initial search_kwargs
+#        search_kwargs = {'k': self.k_docs}
+#        # kwargs specific to "similarity_score_threshold" and "mmr"
+#        if search_type == "similarity_score_threshold":
+#            search_kwargs['score_threshold'] = relevance_threshold
+#        elif search_type == "mmr":
+#            search_kwargs['fetch_k'] = mmr_fetch_k
+#            search_kwargs['lambda_mult'] = mmr_lambda_mult     
+#            
+#        # Metadata embeddings filtering      
+#        if filters:
+#            # If there is filters value
+#            if any([value for key, value in filters.items()]):
+#                # Convert filter for qdrant
+#                if LangVdb._vdb == 'qdrant':
+#                    filters = self._convert_filters_to_qdrant_filter(filters, filter_strictness)
+#                # Add filter in search_kwargs
+#                search_kwargs['filter'] = filters     
+#
+#        # Get retrieval engine from vector database
+#        retriever = lang_vdb.as_retriever(
+#            search_type=search_type,
+#            search_kwargs=search_kwargs
+#            )
+#       
+#        # Get retriever results using reranking (flashrank or rag fusion)
+#        if rerank:
+#            reranked_docs = self.reranking(rerank, retriever, query)
+#            retrieved_docs = self._get_k_best_results(reranked_docs, self.k_docs) 
+#            
+#        # Get retriever results
+#        else:
+#            retrieved_docs = retriever.get_relevant_documents(query)
+#            
+#        self.last_retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_docs)
+#        self.retrieved_docs = self._retrieval_results_to_rag_format(retrieved_docs)
+#        
+#        if format_results == 'str':  
+#            return self._retrieval_results_str_format(retrieved_docs), 
+#        elif format_results == 'rag':
+#            return self._retrieval_results_to_rag_format(retrieved_docs)
+#        else:
+#            return retrieved_docs
+#
+#    def _convert_filters_to_qdrant_filter(self, filters: Dict, filter_strictness:str) -> Union[Filter, None]:
+#        
+#        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str) -> 'FieldCondition':
+#            if value_or_any == 'match_value':
+#                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchValue(value=filter_value))
+#            elif value_or_any == 'match_any':
+#                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchAny(any=filter_value))
+#        
+#        if not filters:
+#            return None
+#        
+#        # For now we only add filter for main_tags and sub_tags (which are lists)
+#        available_filters = [main_tags_col_name, sub_tags_col_name, entry_id_col_name]
+#        must_conditions = []
+#        
+#        
+#        for filter_name, filter_value in filters.items():
+#            if filter_name in available_filters and filter_value:
+#                
+#                # If filter based on pdf file ID
+#                if filter_name == entry_id_col_name:
+#                    if isinstance(filter_value, list):
+#                        # iterate over each ID and check if all of these are present in metadata
+#                        for value in filter_value:
+#                            must_conditions.append(FieldCondition(key=f"metadata.{filter_name}", match=MatchValue(value=value)))
+#                            
+#                # Else filter based on TAGs
+#                else:    
+#                    # If strictness = any tags
+#                    if filter_strictness == filter_strictness_choices[0]:
+#
+#                        if isinstance(filter_value, list):
+#                            # Must match at least one of the values in filter
+#                            must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
+#                        # For other typer of filters such as date
+#                        #else:
+#                        #    must_conditions.append(_create_field_condition(filter_name, filter_value))
+#
+#                    # Elif all tags must be present
+#                    elif filter_strictness == filter_strictness_choices[1]:
+#                        if isinstance(filter_value, list):
+#                            # iterate over each tag and check if all of these are present in metadata
+#                            for value in filter_value:
+#                                must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
+#            
+#
+#        return Filter(must=must_conditions)
+#    
+#
+#    def _flashrank_reranking(self, base_retriever, query):
+#        # Perform reranking with FlashRank
+#        compressor = FlashrankRerank(top_n=self.k_docs)
+#        compression_retriever = ContextualCompressionRetriever(
+#            base_compressor=compressor, base_retriever=base_retriever
+#        )       
+#        retrieved_docs = compression_retriever.get_relevant_documents(query)
+#        return retrieved_docs
+#    
+#    def _reciprocal_ranking_fusion(self, multi_query_results: List[List], k=60):    
+#        fused_scores, map_id_to_doc = {}, {}
+#         
+#        for docs in multi_query_results:
+#            # Assumes the docs are returned in sorted order of relevance (as expected since we provide outputs of a retriever)
+#            for rank, doc in enumerate(docs):
+#                doc_id = doc.metadata[entry_id_col_name]
+#                map_id_to_doc[doc_id] = doc
+#                if doc_id not in fused_scores:
+#                    fused_scores[doc_id] = 0
+#                fused_scores[doc_id] += 1 / (rank + k)
+#
+#        reranked_docs = []
+#        for doc_id, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True):
+#            doc = map_id_to_doc[doc_id]
+#            reranked_docs.append(doc)
+#
+#        return reranked_docs
+#    
+#    def _get_multi_query_llm_chain(self):
+#        
+#        class LineQueryParser(BaseOutputParser[List[str]]):
+#                #Output parser for a list of lines: will split the LLM user' query rewrite into a list of queries
+#                def parse(self, text: str) -> List[str]:
+#                    lines = text.strip().split("\n")
+#                    return list(filter(None, lines))  # Remove empty lines
+#        # llm output parser to generate queries
+#        query_parser = LineQueryParser()
+#        # Multi query prompt for llm original query rewrite
+#        query_prompt_template = PromptTemplate(
+#            input_variables=["original_query"],
+#            template=multi_query_prompt,
+#        )
+#        # Chain to generate multi queries
+#        llm_multi_query_chain = (
+#            query_prompt_template | self.llm | query_parser
+#        )
+#        return llm_multi_query_chain
+#    
+#    def _build_rag_fusion_chain(self, base_retriever):
+#        return self._get_multi_query_llm_chain() | base_retriever.map() | self._reciprocal_ranking_fusion
+#        
+#    def reranking(self, rerank:Literal['flashrank', 'rag_fusion'], base_retriever, query):
+#        if rerank == 'flashrank':
+#            return self._flashrank_reranking(base_retriever, query)
+#            
+#        elif rerank == 'rag_fusion':
+#            rag_fusion_chain = self._build_rag_fusion_chain(base_retriever)
+#            return rag_fusion_chain.invoke({"original_query": query})
+#        
+#    def _get_k_best_results(self, retrieved_docs, k_outputs):
+#        return retrieved_docs[:k_outputs] if len(retrieved_docs) > k_outputs else retrieved_docs
+#    
+#    
+#    def _retrieval_results_str_format(self, retrieved_docs):
+# 
+#        return f"\n{'-'*100}\n".join(
+#                    [
+#                        f"Document {i+1}:\n{doc.page_content}\n" +\
+#                        f"Metadata:\n" + "\n".join([f"{key}: {str(value)}" for key, value in doc.metadata.items()])
+#                        for i, doc in enumerate(retrieved_docs)
+#                    ]
+#                )
+#    
+#    def _retrieval_results_to_rag_format(self, retrieved_docs):
+#        return f"\n{'-'*20}\n".join(
+#                    [f"**Doc_ID**:\n{doc.metadata[chunked_entry_id_col_name]}\n\n**Doc_content**:\n{doc.page_content}" for doc in retrieved_docs]
+#                )
+#        
+#    def _build_str_retrieved_doc_IDs(self, retrieved_docs):
+#        return ", ".join([doc.metadata[chunked_entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
+#    
+#    def _trim_chat_history(self, chat_history=None):
+#        messages = chat_history if chat_history else self.chat_history.messages
+#        if not messages:
+#            return []
+#        return trim_messages(
+#                messages = messages,
+#                max_tokens=max_chat_history_tokens,
+#                strategy="last",
+#                token_counter=self.llm,
+#                include_system=True,
+#                allow_partial=False,
+#                start_on="human",
+#            )
+#        
+#    def _chat_history_contextualize_human_query(self, human_query):
+#        # Get current llm temperature
+#        original_temperature = copy.copy(getattr(self.llm, 'temperature'))
+#        # Set llm temperature to 0
+#        self._modify_llm_params({'temperature' : 0})
+#        # Trim the chat history before passing it to the chain
+#        trimmed_history = self._trim_chat_history(self.chat_history.messages)
+#        # Use self.history_contextualize_q_chain to generate new query
+#        chat_history_contextualized_human_query = self.chat_history_contextualize_q_chain.invoke({
+#                                                      "chat_history": trimmed_history,
+#                                                      "human_query": human_query
+#                                                  })
+#        # Set temperature to original value
+#        self._modify_llm_params({'temperature' : original_temperature})
+#        # Return contextualized query
+#        return chat_history_contextualized_human_query
+#
+#        
+#    def _is_retrieved_data_relevant(self, human_query, retrieved_docs_rag):
+#        # Get current llm temperature
+#        original_temperature = copy.copy(getattr(self.llm, 'temperature'))
+#        # Set llm temperature to 0
+#        self._modify_llm_params({'temperature' : 0})
+#        # Directly invoke the LLM with the simplified prompt
+#        prompt = self.is_retrieved_data_relevant_prompt.format(
+#            human_query=human_query, 
+#            retrieved_docs_rag=retrieved_docs_rag
+#        )
+#
+#        is_retrieved_data_relevant_response = self.llm.invoke(prompt).content
+#        # Set temperature to original value
+#        self._modify_llm_params({'temperature' : original_temperature})
+#        # Return contextualized query
+#        return is_retrieved_data_relevant_response
+#    
+#    def rag_call(self, lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
+#
+#        # Update llm params
+#        if isinstance(llm_params, Dict) and llm_params:
+#            self._modify_llm_params(llm_params)
+#            
+#            
+#        ## Contextualize query based on chat history
+#        chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
+#        
+#        print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
+#        
+#        
+#        #chat_history_contextualized_human_query = human_query
+#        
+#        # Retrieve documents associated to the query
+#        retrieved_documents = self.retrieval(
+#            chat_history_contextualized_human_query, 
+#            lang_vdb, 
+#            **retrieval_params
+#        )
+#        
+#        # Build a string of retrieved doc's IDs
+#        retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_documents)
+#        # Format retrieved document content to pass in RAG
+#        formatted_retrieved_documents = self._retrieval_results_to_rag_format(retrieved_documents)
+#        
+#        print('RETRIEVED DOCS:', self._retrieval_results_to_rag_format(retrieved_documents), '\n\n')
+#        
+#        print('RETRIEVED DOC IDS:', retrieved_doc_IDs_str)       
+#        
+#        ## Ask llm whether retrieved documents are relevant enough to adress the query
+#        #is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
+#        #    chat_history_contextualized_human_query,
+#        #    formatted_retrieved_documents
+#        #).lower()
+#        #
+#        #print('\n\n\nARE RETRIEVED DOCS RELEVANT :', is_retrieved_data_relevant_response, '\n\n\n')
+#        
+#        #if is_retrieved_data_relevant_response == 'no':
+#        #    ai_response = rag_response_unrelevant_retrieved_docs
+#        #else:
+#        # Activate streaming callback
+#        self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
+#        # Call rag
+#        ai_response_str = self.rag_chain.invoke({
+#            "question": chat_history_contextualized_human_query,
+#            "context": formatted_retrieved_documents
+#        })
+#
+#        # Reset callbacks for normal llm usage 
+#        self._modify_llm_params({'callbacks':None})
+#
+#        # Add human and ai messages in chat history
+#        self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response_str)])
+#        
+#        # Return the ai_response with the associated retrieved_doc_IDs_str
+#        #return ''.join([ai_response_str, f'___Retrieved document IDs___: {retrieved_doc_IDs_str}']) 
+#        return ai_response_str, retrieved_doc_IDs_str
+#        
+
+
+
+
+
 class RAGentic():
     
     def __init__(self):
@@ -989,6 +1355,9 @@ class RAGentic():
         self._modify_llm_params({'temperature' : 0})
         # Trim the chat history before passing it to the chain
         trimmed_history = self._trim_chat_history(self.chat_history.messages)
+        
+        print('FORMAT MSG PROMPT: ',   self.chat_history_contextualize_q_prompt.format_messages(chat_history=trimmed_history, human_query=human_query))
+        print('FORMAT PROMPT ', self.chat_history_contextualize_q_prompt.format(chat_history=trimmed_history, human_query=human_query))
         # Use self.history_contextualize_q_chain to generate new query
         chat_history_contextualized_human_query = self.chat_history_contextualize_q_chain.invoke({
                                                       "chat_history": trimmed_history,
@@ -1024,10 +1393,13 @@ class RAGentic():
             self._modify_llm_params(llm_params)
             
             
-        # Contextualize query based on chat history
+        ## Contextualize query based on chat history
         chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
         
         print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
+        
+        
+        #chat_history_contextualized_human_query = human_query
         
         # Retrieve documents associated to the query
         retrieved_documents = self.retrieval(
