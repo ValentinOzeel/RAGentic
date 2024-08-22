@@ -47,9 +47,8 @@ class LLMResponseStreamingHandler(BaseCallbackHandler):
         
     def on_llm_end(self, response: str, **kwargs) -> None:
         ai_response = "".join(self.current_llm_response_tokens)
-        final_response = f"{ai_response} ___Retrieved document IDs___: {self.state.RAGentic.last_retrieved_doc_IDs_str}"
+        final_response = f"{ai_response} ___Used document IDs___: {self.state.RAGentic.last_docs_used_in_llm_response_from_retrieved_docs} ||| ___All retrieved document IDs___: {self.state.RAGentic.last_retrieved_doc_IDs_str}"
         self._update_table(final_str=final_response)
-
 
 
     

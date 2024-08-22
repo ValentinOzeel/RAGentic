@@ -67,7 +67,7 @@ from constants import (credentials_yaml_path,
                        llm_name, llm_temperature, max_chat_history_tokens
 )
 
-from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, is_retrieved_data_relevant_system_prompt, rag_system_prompt
+from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, doc_ids_used_in_response_system_prompt, is_retrieved_data_relevant_system_prompt, rag_system_prompt
             
 
 class YamlManagment():
@@ -1112,7 +1112,7 @@ class RAGentic():
             [
                 ("system", chat_history_contextualize_q_system_prompt),
                 MessagesPlaceholder("chat_history"),
-                ("human", "{human_query}"),
+                #("human", "{human_query}"),
             ]
         )
         # Chat history query contextualization chain
@@ -1127,6 +1127,15 @@ class RAGentic():
         # Retrieved data relevant to answer the query chain
         self.is_retrieved_data_relevant_chain = (
             self.is_retrieved_data_relevant_prompt
+            | self.llm
+            | StrOutputParser()
+        )
+        ############################################################################
+        # Documents IDs (from retrieved documents) that the llm use to answer the query
+        self.docs_used_in_response_system_prompt = ChatPromptTemplate.from_template(doc_ids_used_in_response_system_prompt)
+        # Retrieved data relevant to answer the query chain
+        self.list_docs_used_in_response_chain = (
+            self.docs_used_in_response_system_prompt
             | self.llm
             | StrOutputParser()
         )
@@ -1317,7 +1326,6 @@ class RAGentic():
     
     
     def _retrieval_results_str_format(self, retrieved_docs):
- 
         return f"\n{'-'*100}\n".join(
                     [
                         f"Document {i+1}:\n{doc.page_content}\n" +\
@@ -1327,8 +1335,8 @@ class RAGentic():
                 )
     
     def _retrieval_results_to_rag_format(self, retrieved_docs):
-        return f"\n{'-'*20}\n".join(
-                    [f"**Doc_ID**:\n{doc.metadata[chunked_entry_id_col_name]}\n\n**Doc_content**:\n{doc.page_content}" for doc in retrieved_docs]
+        return f"\n\n{'-'*20}\n\n".join(
+                    [f"**Document ID {doc.metadata[chunked_entry_id_col_name]}**:\n{doc.page_content}" for doc in retrieved_docs]
                 )
         
     def _build_str_retrieved_doc_IDs(self, retrieved_docs):
@@ -1355,18 +1363,14 @@ class RAGentic():
         self._modify_llm_params({'temperature' : 0})
         # Trim the chat history before passing it to the chain
         trimmed_history = self._trim_chat_history(self.chat_history.messages)
-        
-        print('FORMAT MSG PROMPT: ',   self.chat_history_contextualize_q_prompt.format_messages(chat_history=trimmed_history, human_query=human_query))
-        print('FORMAT PROMPT ', self.chat_history_contextualize_q_prompt.format(chat_history=trimmed_history, human_query=human_query))
-        # Use self.history_contextualize_q_chain to generate new query
-        chat_history_contextualized_human_query = self.chat_history_contextualize_q_chain.invoke({
-                                                      "chat_history": trimmed_history,
-                                                      "human_query": human_query
-                                                  })
+        # Format the chat_history_contextualize_q_prompt with variables
+        formatted_prompt = self.chat_history_contextualize_q_prompt.format(chat_history=trimmed_history, human_query=human_query)
+        # Call LLM with the formatted prompt to generate new query
+        chat_history_contextualized_human_query = self.llm.invoke(formatted_prompt)        
         # Set temperature to original value
         self._modify_llm_params({'temperature' : original_temperature})
         # Return contextualized query
-        return chat_history_contextualized_human_query
+        return chat_history_contextualized_human_query.content
 
         
     def _is_retrieved_data_relevant(self, human_query, retrieved_docs_rag):
@@ -1398,9 +1402,6 @@ class RAGentic():
         
         print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
         
-        
-        #chat_history_contextualized_human_query = human_query
-        
         # Retrieve documents associated to the query
         retrieved_documents = self.retrieval(
             chat_history_contextualized_human_query, 
@@ -1413,8 +1414,7 @@ class RAGentic():
         # Format retrieved document content to pass in RAG
         formatted_retrieved_documents = self._retrieval_results_to_rag_format(retrieved_documents)
         
-        print('RETRIEVED DOCS:', self._retrieval_results_to_rag_format(retrieved_documents), '\n\n')
-        
+        print('RETRIEVED DOCS:', formatted_retrieved_documents, '\n\n')
         print('RETRIEVED DOC IDS:', retrieved_doc_IDs_str)       
         
         ## Ask llm whether retrieved documents are relevant enough to adress the query
@@ -1428,8 +1428,26 @@ class RAGentic():
         #if is_retrieved_data_relevant_response == 'no':
         #    ai_response = rag_response_unrelevant_retrieved_docs
         #else:
+        
+        
+        
+
+        
+        # Determine which documents (from retriever) are used to formulate the answer
+        # Gonna be added at the end of the llm answer via the LLMResponseStreamingHandler's method on_llm_end
+        self.last_docs_used_in_llm_response_from_retrieved_docs = self.list_docs_used_in_response_chain.invoke({
+            "question": chat_history_contextualized_human_query,
+            "context": formatted_retrieved_documents
+        })
+        
+        
+        
+        
+
+        
         # Activate streaming callback
         self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
+
         # Call rag
         ai_response_str = self.rag_chain.invoke({
             "question": chat_history_contextualized_human_query,
