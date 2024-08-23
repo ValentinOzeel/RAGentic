@@ -3,8 +3,6 @@ import pandas as pd
 import datetime 
 import torch
 
-from typing import Tuple
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 ###                    ###               
@@ -187,12 +185,9 @@ image_to_text_output = ''
 ### Miscellanous constants  ###
 ###                         ###
 
-
 notify_duration = 8000 #mseconds
 
 sqlite_tags_separator = ','
-
-
 
 ###                         ###               
 ###      LLM constants      ###
@@ -219,7 +214,6 @@ ollama_llms = [
 
 llm_name = 'llama3.1'
 llm_temperature = "0.1"
-
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # ！The default dimension is 1024.
@@ -276,5 +270,4 @@ rag_response_unrelevant_retrieved_docs = "I'm sorry, the retrieved documents are
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 credentials_yaml_path = os.path.join(root_path, 'conf', 'app_credentials.yaml')
 sqlite_database_path = os.path.join(root_path, 'conf', 'data_sqlite.db')
-milvus_database_path = os.path.join(root_path, 'conf', 'data_milvus.db')
 qdrant_database_path = os.path.join(root_path, 'conf', 'data_qdrant.db')

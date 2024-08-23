@@ -23,11 +23,9 @@ from langchain.embeddings.base import Embeddings
 from langchain.indexes import SQLRecordManager, index
 from langchain_community.document_loaders import TextLoader
 ## Vector databases
-#from pymilvus import MilvusClient
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue, MatchAny
 ## Langchain integreation
-#from langchain_milvus.vectorstores import Milvus
 from langchain_qdrant import QdrantVectorStore
 from langchain_qdrant import FastEmbedSparse, RetrievalMode
 ## Rerank
@@ -51,27 +49,32 @@ from langchain.schema import StrOutputParser
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 ## Callbacks (streaming repsonse)
 from langchain.callbacks.manager import CallbackManager
-# 
-from langchain_core.runnables import RunnablePassthrough
 
-from constants import (credentials_yaml_path, 
-                       image_to_text_languages,
-                       entry_id_col_name, chunked_entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, text_col_name,
-                       sqlite_database_path, sqlite_tags_separator,
-                       chunk_size, chunk_overlap, chunk_separators, recursive_character_text_splitter,
-                       device,
-                       vdb, milvus_database_path, qdrant_database_path, retrieval_mode, retrieval_rerank,
-                       sql_record_manager_path, embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
-                       retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult,
-                       rag_response_unrelevant_retrieved_docs,
-                       llm_name, llm_temperature, max_chat_history_tokens
+from constants import (
+    credentials_yaml_path, 
+    image_to_text_languages,
+    entry_id_col_name, chunked_entry_id_col_name, date_col_name, main_tags_col_name, sub_tags_col_name, doc_type_col_name, text_col_name,
+    sqlite_database_path, sqlite_tags_separator,
+    recursive_character_text_splitter,
+    device,
+    vdb, qdrant_database_path, 
+    sql_record_manager_path, 
+    embeddings_model_name, embeddings_query_prompt, vector_dimensions, sparse_embeddings_model_name,
+    retrieval_mode, retrieval_rerank, retrieval_search_type, filter_strictness_choices, k_outputs_retrieval, relevance_threshold, mmr_fetch_k, mmr_lambda_mult,
+    llm_name, llm_temperature, max_chat_history_tokens
 )
 
-from prompts import multi_query_prompt, chat_history_contextualize_q_system_prompt, doc_ids_used_in_response_system_prompt, is_retrieved_data_relevant_system_prompt, rag_system_prompt
+from prompts import (
+    multi_query_prompt, 
+    chat_history_contextualize_q_system_prompt, 
+    doc_ids_used_in_rag_response_system_prompt, 
+    rag_system_prompt
+)
             
 
 class YamlManagment():
-
+    '''YAML credential managment'''
+    
     @staticmethod
     def create_cred_yaml_file():
         #Initialize the YAML file with an empty dictionary.
@@ -179,9 +182,7 @@ class YamlManagment():
         YamlManagment._increment_user_n_entry_id(user_id, 1)
         return str(entry_id) 
             
-            
-            
-                
+                     
 class SignLog():
     ###                 ###               
     ### Sign in methods ###
@@ -224,6 +225,7 @@ class SignLog():
 ### OCR FUNCTION ###
 ### OCR FUNCTION ###
 def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
+    '''Image (IN) to text (OUT) OCR function'''
 
     gpu = True if cpu_or_gpu == 'GPU' else False
     languages = [image_to_text_languages[selected_languages]] if isinstance(selected_languages, str) else [
@@ -232,12 +234,8 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 
     reader = easyocr.Reader(languages, gpu=gpu)
     result = reader.readtext(image_path)
-
     whole_text = ' '.join([text for (bbox, text, prob) in result])
-    
     return whole_text
-
-
 
 
 
@@ -246,12 +244,7 @@ def image_to_text_conversion(selected_languages, cpu_or_gpu, image_path):
 ### SQLITE DB MANAGMENT CLASS ###
 ### SQLITE DB MANAGMENT CLASS ###
 class SQLiteManagment:
-    '''
-    In an application where multiple users can access the database, 
-    it's generally better to open and close the database connection for each action. 
-    SQLite, while lightweight and convenient, is not designed for high-concurrency scenarios like a full-fledged database server such as PostgreSQL or MySQL.
-    That's why contextmanager is used here to close connect and close the db after action.
-    '''
+    '''SQLite DATABASE MANAGMENT'''
 
     @staticmethod
     @contextmanager
@@ -262,8 +255,7 @@ class SQLiteManagment:
             yield conn
         finally:
             conn.close()
-            
-            
+             
     @staticmethod
     def initialize_db():
         """Initialize the SQLite database with the necessary table if not already exists."""
@@ -284,7 +276,6 @@ class SQLiteManagment:
             ''')
             conn.commit()
             
-
     @staticmethod   
     def _get_number_of_entries(user_id):
         """Get the number of entries in the database for a specific user."""
@@ -355,7 +346,6 @@ class SQLiteManagment:
                 else:
                     raise  # Re-raise other operational errors
 
-        
     @staticmethod  
     def sqlite_to_dataframe(user_id):
         """Convert the database entries to a Pandas DataFrame for a specific user."""
@@ -381,7 +371,6 @@ class SQLiteManagment:
 ### EMBEDDINGS CLASS ###
 ### EMBEDDINGS CLASS ###
 ### EMBEDDINGS CLASS ###
-
 class SentenceTransformersEmbeddings(Embeddings):
     def __init__(self, model_name: str = embeddings_model_name):
         # Initialize the SentenceTransformer model using GPU or CPU
@@ -425,7 +414,9 @@ class SentenceTransformersEmbeddings(Embeddings):
 ### VECTOR DATABASE MANAGMENT CLASS ###
 ### VECTOR DATABASE MANAGMENT CLASS ###
 class LangVdb:
-    _vdb : Literal['qdrant', 'milvus'] = vdb
+    '''VECTOR DATABASE MANAGMENT CLASS'''
+    
+    _vdb : Literal['qdrant'] = vdb
     
     _pdf_parsers = {
         "llama_parse": LlamaParse(
@@ -439,10 +430,9 @@ class LangVdb:
         "langchain_pdfplumber": PDFPlumberLoader
         }
     
-    #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
-    #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
-    #    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
-
+    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ### 
+    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
+    ### USE LOCAL ON SIDK STORAGE FOR NOW, SWITCH TO DOCKER SERVER LATER ###
     @staticmethod
     def _initialize_vdb_collection(user_id):        
         if LangVdb._vdb == 'qdrant':
@@ -464,7 +454,7 @@ class LangVdb:
             
     @staticmethod
     def _access_qdrant_vdb(user_id):
-        
+        # Build vector store parameter dictionnary
         vector_store_params = {
             'path': qdrant_database_path,
             'collection_name':user_id,
@@ -481,19 +471,19 @@ class LangVdb:
         
          
         
-    ### TEXT ENTRY HANDLER ###
-    ### TEXT ENTRY HANDLER ###
-    ### TEXT ENTRY HANDLER ###
+    ### TEXT ENTRY HANDLER METHODS ###
+    ### TEXT ENTRY HANDLER METHODS ###
+    ### TEXT ENTRY HANDLER METHODS ###
     @staticmethod
     def text_to_db(user_id, vdb, 
                    single_entry_load_kwargs:Dict=None, text_file_load_kwargs:Dict=None,
                    vdb_add=True, sqlite_add=True
                    ):
-        
+        # Format text entry
         if single_entry_load_kwargs:
             entry = LangVdb.format_text_entry(user_id, **single_entry_load_kwargs)
             docs = LangVdb.formatted_text_entries_to_docs([entry])
-            
+        # Format entries from text file
         elif text_file_load_kwargs:
             entries = LangVdb.txt_file_to_formatted_entries(user_id, **text_file_load_kwargs)
             docs = LangVdb.formatted_text_entries_to_docs(entries)
@@ -507,9 +497,7 @@ class LangVdb:
     
     @staticmethod
     def format_text_entry(user_id, text_date, main_tags, sub_tags, text_entry):
-        """
-        FORMAT SINGLE ENTRY (USER TEXT) TO SQL OR VDB FORMAT
-        """
+        """FORMAT SINGLE ENTRY (USER TEXT) TO SQL OR VDB FORMAT"""
         # Get doc's id and increment
         entry_id = YamlManagment.get_entry_id_and_increment(user_id)
 
@@ -524,9 +512,7 @@ class LangVdb:
 
     @staticmethod
     def txt_file_to_formatted_entries(user_id, file_path, entry_delimiter, file_tags_separator, date_delimiter, main_tags_delimiter, sub_tags_delimiter, text_delimiter):
-        """
-        FORMAT ENTRIES (USER TEXT) FROM TEXT FILE TO SQL OR VDB FORMAT
-        """
+        """FORMAT ENTRIES (USER TEXT) FROM TEXT FILE TO SQL OR VDB FORMAT"""
         def _process_entry(entry):
             date, text = '', ''
             main_tags, sub_tags = [], []
@@ -535,7 +521,6 @@ class LangVdb:
             lines = entry.strip().split('\n')
 
             for i in range(len(lines)):
-
                 # Remove date_delimiter as well as white spaces and grab the date
                 if date_delimiter in lines[i]:
                     date = lines[i].replace(date_delimiter, '').replace(' ', '')
@@ -548,10 +533,8 @@ class LangVdb:
                 # Remove text_delimiter and grab the text
                 elif text_delimiter in lines[i]:
                     text = ' '.join(lines[i:]).replace(text_delimiter, '')
-
             # Format entry
             return LangVdb.format_text_entry(user_id, date, main_tags, sub_tags, text)
-
 
         # Open and read the file
         with open(file_path, 'r') as file:
@@ -565,17 +548,17 @@ class LangVdb:
 
     @staticmethod
     def formatted_text_entries_to_docs(formatted_entries:List):
-        """
-        CONVERT VDB FORMATTED TEXT ENTRIES TO DOCUMENTS
-        """
-        
+        """CONVERT VDB FORMATTED TEXT ENTRIES TO DOCUMENTS"""
+        # Get non empty entries
         entries = [entry for entry in formatted_entries if entry.get(text_col_name, None)]
         
         if not entries: 
             return None
         
+        # Generate chunked Documents from formatted entries
         formatted_chunked_documents = [] 
         for entry_dict in entries:
+            # Create Document with metadata
             generated_document = Document(
                 page_content=entry_dict[text_col_name], 
                 metadata={
@@ -586,24 +569,23 @@ class LangVdb:
                     doc_type_col_name: entry_dict[doc_type_col_name]
                 }
             )
-
+            # Chunk initial document
             chunked_docs = recursive_character_text_splitter.split_documents([generated_document])
-            
+            # Add chunk ID in chunked document's metadata
             for i, doc in enumerate(chunked_docs, start=0):
                 doc.metadata[chunked_entry_id_col_name] = f"{entry_dict[entry_id_col_name]}.{i}"
                 formatted_chunked_documents.append(doc)
-                
+        # Return created Documents   
         return formatted_chunked_documents
    
 
-    ### PDF HANDLER ###
-    ### PDF HANDLER ###
-    ### PDF HANDLER ###
+    ### PDF HANDLER METHODS ###
+    ### PDF HANDLER METHODS ###
+    ### PDF HANDLER METHODS ###
     @staticmethod
     def pdf_to_db(user_id, vdb, pdf_path, pdf_date, main_tags, sub_tags, vdb_add=True, sqlite_add=True):
-        """
-        CONVERT PDF FILE TO DOCUMENT ENTRIES AND INDEX THESE IN VECTOR DATABASE
-        """
+        """CONVERT PDF FILE TO DOCUMENT ENTRIES AND INDEX THESE IN VECTOR DATABASE"""
+        
         # Parse pdf and get chunked documents
         chunked_docs = LangVdb._parse_PDF(pdf_path)
         # Get doc's id and increment
@@ -619,14 +601,13 @@ class LangVdb:
         # Add pdf in yml user's pdf list
         YamlManagment._add_user_pdf(user_id, os.path.basename(pdf_path), doc_id)
         
-
+        
     @staticmethod
     def _parse_PDF(pdf_path, parser_type:str = 'langchain_pdfminer'):
-        
+        # Parse PDF
         try:
-            # Parse PDF
+            # Get selected PDF parser
             parser = LangVdb._pdf_parsers[parser_type]
-            
             # If using Llamaindex's llama_parse
             if parser_type == "llama_parse":
                 parsed_pdf = parser.load_data(pdf_path) 
@@ -636,11 +617,6 @@ class LangVdb:
                     for doc in parsed_pdf:
                         f.write(doc.text + '\n')
                 # Load txt file with TextLoader
-                #[
-                #    Document(
-                    # page_content='---\nsidebar_position: 0\n---\nThey optionally implement:\n\n3. "Lazy load": load documents into memory lazily\n', 
-                    # metadata={'source': '../docs/docs/modules/data_connection/document_loaders/index.md'})
-                #]
                 loader = TextLoader(txt_file_path, autodetect_encoding=True)
                 documents = loader.load()
                 # Delete the file
@@ -653,18 +629,17 @@ class LangVdb:
             # Split loaded documents into chunks
             return recursive_character_text_splitter.split_documents(documents)
 
-            
         except Exception as e:
             print(f"_parse_PDF fail: {e}")
 
 
 
-    ### COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
-    ### COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
-    ### COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
+    ### METHODS COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
+    ### METHODS COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
+    ### METHODS COMMON TO TEXT AND PDF HANDLERS (FORMAT DOCS + INDEX IN VDB + LOAD IN SQLITE) ###
     @staticmethod
     def _format_chunked_docs(entry_id, chunked_docs:list, doc_date, main_tags, sub_tags, doc_type):
-            
+        '''Format chunked documents' metadata'''
         for i, doc in enumerate(chunked_docs, start=0):
             # Add metadata
             doc.metadata[entry_id_col_name] = f"{entry_id}"
@@ -673,11 +648,12 @@ class LangVdb:
             doc.metadata[main_tags_col_name] = main_tags
             doc.metadata[sub_tags_col_name] = sub_tags
             doc.metadata[doc_type_col_name] = doc_type
-
         return chunked_docs
          
     @staticmethod
     def _index_docs_to_vdb(user_id, vdb, docs, source_id_key="source"):
+        '''Index documents entry in vector store'''
+        # Get user's vector store entries record manager
         namespace = f"{LangVdb._vdb}/{user_id}"
         record_manager = SQLRecordManager(
             namespace, db_url=sql_record_manager_path
@@ -694,10 +670,12 @@ class LangVdb:
 
     @staticmethod
     def _format_tags_list_to_str_sql_entry(tags_list):
+        '''Format tags for sqlite entry'''
         return f'{sqlite_tags_separator}'.join([tag.replace(' ', '') for tag in tags_list]) if isinstance(tags_list, List) else tags_list
     
     @staticmethod
     def _docs_to_sqlite(user_id, docs):
+        '''Add documents in sqlite database'''
         list_entries = [
             {
                 entry_id_col_name: doc.metadata[entry_id_col_name],   
@@ -716,374 +694,151 @@ class LangVdb:
 ### RAG CLASS ###
 ### RAG CLASS ###
 ### RAG CLASS ###
-#class RAGentic():
-#    
-#    def __init__(self):
-#        # Local Chat LLM
-#        self.llm = ChatOllama(
-#            model=llm_name,
-#            temperature=llm_temperature
-#        )
-#        
-#        # n docs retrieval
-#        self.k_docs = k_outputs_retrieval
-#        
-#        # Chat strings for incremental display in app
-#        self.chat_dict = {}
-#        
-#        # Chat history
-#        self.chat_history = InMemoryChatMessageHistory()
-#        
-#        # Retriever to use
-#        self.retrieved_docs = ''
-#        # Last retrieved_doc_IDs_str
-#        self.last_retrieved_doc_IDs_str = ''
-#        
-#        
-#        ############################################################################
-#        # Chat history query contextualization system prompt
-#        self.chat_history_contextualize_q_prompt = ChatPromptTemplate.from_messages(
-#            [
-#                ("system", chat_history_contextualize_q_system_prompt),
-#                MessagesPlaceholder("chat_history"),
-#                ("human", "{human_query}"),
-#            ]
-#        )
-#        # Chat history query contextualization chain
-#        self.chat_history_contextualize_q_chain = (
-#            self.chat_history_contextualize_q_prompt
-#            | self.llm
-#            | StrOutputParser()
-#        )
-#        ############################################################################
-#        # retrieved data relevance to answer the query system prompt
-#        self.is_retrieved_data_relevant_prompt = ChatPromptTemplate.from_template(is_retrieved_data_relevant_system_prompt)
-#        # Retrieved data relevant to answer the query chain
-#        self.is_retrieved_data_relevant_chain = (
-#            self.is_retrieved_data_relevant_prompt
-#            | self.llm
-#            | StrOutputParser()
-#        )
-#        ############################################################################
-#        # RAG system prompt
-#        self.rag_prompt = ChatPromptTemplate.from_template(rag_system_prompt)
-#        # RAG call with contextualized query + retrieved documents
-#        self.rag_chain = (
-#            self.rag_prompt
-#            | self.llm 
-#            | StrOutputParser()
-#        )
-#        
-#
-#
-#
-#    def _get_chat_history_content(self):
-#        return [msg.content for msg in self.chat_history.messages]
-#    
-#    def _modify_llm_params(self, params:Dict): 
-#        for param_name, param_value in params.items():
-#            try:    
-#                setattr(self.llm, param_name, param_value)
-#            except Exception as e:
-#                print(f"_modify_llm_params fail for param {param_name}: {e}")
-#                  
-#    def retrieval(self, query, lang_vdb,
-#                  search_type:str=retrieval_search_type, k_outputs:int=k_outputs_retrieval, rerank:Literal['flashrank', 'rag_fusion', False]=retrieval_rerank,
-#                  filter_strictness=filter_strictness_choices[0], filters:Dict={}, 
-#                  format_results:Literal['str', 'rag', False, None]=False):
-#
-#        # Set n as number of documents to retrieve
-#        self.k_docs = k_outputs if k_outputs else self.k_docs
-#        # Build initial search_kwargs
-#        search_kwargs = {'k': self.k_docs}
-#        # kwargs specific to "similarity_score_threshold" and "mmr"
-#        if search_type == "similarity_score_threshold":
-#            search_kwargs['score_threshold'] = relevance_threshold
-#        elif search_type == "mmr":
-#            search_kwargs['fetch_k'] = mmr_fetch_k
-#            search_kwargs['lambda_mult'] = mmr_lambda_mult     
-#            
-#        # Metadata embeddings filtering      
-#        if filters:
-#            # If there is filters value
-#            if any([value for key, value in filters.items()]):
-#                # Convert filter for qdrant
-#                if LangVdb._vdb == 'qdrant':
-#                    filters = self._convert_filters_to_qdrant_filter(filters, filter_strictness)
-#                # Add filter in search_kwargs
-#                search_kwargs['filter'] = filters     
-#
-#        # Get retrieval engine from vector database
-#        retriever = lang_vdb.as_retriever(
-#            search_type=search_type,
-#            search_kwargs=search_kwargs
-#            )
-#       
-#        # Get retriever results using reranking (flashrank or rag fusion)
-#        if rerank:
-#            reranked_docs = self.reranking(rerank, retriever, query)
-#            retrieved_docs = self._get_k_best_results(reranked_docs, self.k_docs) 
-#            
-#        # Get retriever results
-#        else:
-#            retrieved_docs = retriever.get_relevant_documents(query)
-#            
-#        self.last_retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_docs)
-#        self.retrieved_docs = self._retrieval_results_to_rag_format(retrieved_docs)
-#        
-#        if format_results == 'str':  
-#            return self._retrieval_results_str_format(retrieved_docs), 
-#        elif format_results == 'rag':
-#            return self._retrieval_results_to_rag_format(retrieved_docs)
-#        else:
-#            return retrieved_docs
-#
-#    def _convert_filters_to_qdrant_filter(self, filters: Dict, filter_strictness:str) -> Union[Filter, None]:
-#        
-#        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str) -> 'FieldCondition':
-#            if value_or_any == 'match_value':
-#                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchValue(value=filter_value))
-#            elif value_or_any == 'match_any':
-#                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchAny(any=filter_value))
-#        
-#        if not filters:
-#            return None
-#        
-#        # For now we only add filter for main_tags and sub_tags (which are lists)
-#        available_filters = [main_tags_col_name, sub_tags_col_name, entry_id_col_name]
-#        must_conditions = []
-#        
-#        
-#        for filter_name, filter_value in filters.items():
-#            if filter_name in available_filters and filter_value:
-#                
-#                # If filter based on pdf file ID
-#                if filter_name == entry_id_col_name:
-#                    if isinstance(filter_value, list):
-#                        # iterate over each ID and check if all of these are present in metadata
-#                        for value in filter_value:
-#                            must_conditions.append(FieldCondition(key=f"metadata.{filter_name}", match=MatchValue(value=value)))
-#                            
-#                # Else filter based on TAGs
-#                else:    
-#                    # If strictness = any tags
-#                    if filter_strictness == filter_strictness_choices[0]:
-#
-#                        if isinstance(filter_value, list):
-#                            # Must match at least one of the values in filter
-#                            must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
-#                        # For other typer of filters such as date
-#                        #else:
-#                        #    must_conditions.append(_create_field_condition(filter_name, filter_value))
-#
-#                    # Elif all tags must be present
-#                    elif filter_strictness == filter_strictness_choices[1]:
-#                        if isinstance(filter_value, list):
-#                            # iterate over each tag and check if all of these are present in metadata
-#                            for value in filter_value:
-#                                must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
-#            
-#
-#        return Filter(must=must_conditions)
-#    
-#
-#    def _flashrank_reranking(self, base_retriever, query):
-#        # Perform reranking with FlashRank
-#        compressor = FlashrankRerank(top_n=self.k_docs)
-#        compression_retriever = ContextualCompressionRetriever(
-#            base_compressor=compressor, base_retriever=base_retriever
-#        )       
-#        retrieved_docs = compression_retriever.get_relevant_documents(query)
-#        return retrieved_docs
-#    
-#    def _reciprocal_ranking_fusion(self, multi_query_results: List[List], k=60):    
-#        fused_scores, map_id_to_doc = {}, {}
-#         
-#        for docs in multi_query_results:
-#            # Assumes the docs are returned in sorted order of relevance (as expected since we provide outputs of a retriever)
-#            for rank, doc in enumerate(docs):
-#                doc_id = doc.metadata[entry_id_col_name]
-#                map_id_to_doc[doc_id] = doc
-#                if doc_id not in fused_scores:
-#                    fused_scores[doc_id] = 0
-#                fused_scores[doc_id] += 1 / (rank + k)
-#
-#        reranked_docs = []
-#        for doc_id, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True):
-#            doc = map_id_to_doc[doc_id]
-#            reranked_docs.append(doc)
-#
-#        return reranked_docs
-#    
-#    def _get_multi_query_llm_chain(self):
-#        
-#        class LineQueryParser(BaseOutputParser[List[str]]):
-#                #Output parser for a list of lines: will split the LLM user' query rewrite into a list of queries
-#                def parse(self, text: str) -> List[str]:
-#                    lines = text.strip().split("\n")
-#                    return list(filter(None, lines))  # Remove empty lines
-#        # llm output parser to generate queries
-#        query_parser = LineQueryParser()
-#        # Multi query prompt for llm original query rewrite
-#        query_prompt_template = PromptTemplate(
-#            input_variables=["original_query"],
-#            template=multi_query_prompt,
-#        )
-#        # Chain to generate multi queries
-#        llm_multi_query_chain = (
-#            query_prompt_template | self.llm | query_parser
-#        )
-#        return llm_multi_query_chain
-#    
-#    def _build_rag_fusion_chain(self, base_retriever):
-#        return self._get_multi_query_llm_chain() | base_retriever.map() | self._reciprocal_ranking_fusion
-#        
-#    def reranking(self, rerank:Literal['flashrank', 'rag_fusion'], base_retriever, query):
-#        if rerank == 'flashrank':
-#            return self._flashrank_reranking(base_retriever, query)
-#            
-#        elif rerank == 'rag_fusion':
-#            rag_fusion_chain = self._build_rag_fusion_chain(base_retriever)
-#            return rag_fusion_chain.invoke({"original_query": query})
-#        
-#    def _get_k_best_results(self, retrieved_docs, k_outputs):
-#        return retrieved_docs[:k_outputs] if len(retrieved_docs) > k_outputs else retrieved_docs
-#    
-#    
-#    def _retrieval_results_str_format(self, retrieved_docs):
-# 
-#        return f"\n{'-'*100}\n".join(
-#                    [
-#                        f"Document {i+1}:\n{doc.page_content}\n" +\
-#                        f"Metadata:\n" + "\n".join([f"{key}: {str(value)}" for key, value in doc.metadata.items()])
-#                        for i, doc in enumerate(retrieved_docs)
-#                    ]
-#                )
-#    
-#    def _retrieval_results_to_rag_format(self, retrieved_docs):
-#        return f"\n{'-'*20}\n".join(
-#                    [f"**Doc_ID**:\n{doc.metadata[chunked_entry_id_col_name]}\n\n**Doc_content**:\n{doc.page_content}" for doc in retrieved_docs]
-#                )
-#        
-#    def _build_str_retrieved_doc_IDs(self, retrieved_docs):
-#        return ", ".join([doc.metadata[chunked_entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
-#    
-#    def _trim_chat_history(self, chat_history=None):
-#        messages = chat_history if chat_history else self.chat_history.messages
-#        if not messages:
-#            return []
-#        return trim_messages(
-#                messages = messages,
-#                max_tokens=max_chat_history_tokens,
-#                strategy="last",
-#                token_counter=self.llm,
-#                include_system=True,
-#                allow_partial=False,
-#                start_on="human",
-#            )
-#        
-#    def _chat_history_contextualize_human_query(self, human_query):
-#        # Get current llm temperature
-#        original_temperature = copy.copy(getattr(self.llm, 'temperature'))
-#        # Set llm temperature to 0
-#        self._modify_llm_params({'temperature' : 0})
-#        # Trim the chat history before passing it to the chain
-#        trimmed_history = self._trim_chat_history(self.chat_history.messages)
-#        # Use self.history_contextualize_q_chain to generate new query
-#        chat_history_contextualized_human_query = self.chat_history_contextualize_q_chain.invoke({
-#                                                      "chat_history": trimmed_history,
-#                                                      "human_query": human_query
-#                                                  })
-#        # Set temperature to original value
-#        self._modify_llm_params({'temperature' : original_temperature})
-#        # Return contextualized query
-#        return chat_history_contextualized_human_query
-#
-#        
-#    def _is_retrieved_data_relevant(self, human_query, retrieved_docs_rag):
-#        # Get current llm temperature
-#        original_temperature = copy.copy(getattr(self.llm, 'temperature'))
-#        # Set llm temperature to 0
-#        self._modify_llm_params({'temperature' : 0})
-#        # Directly invoke the LLM with the simplified prompt
-#        prompt = self.is_retrieved_data_relevant_prompt.format(
-#            human_query=human_query, 
-#            retrieved_docs_rag=retrieved_docs_rag
-#        )
-#
-#        is_retrieved_data_relevant_response = self.llm.invoke(prompt).content
-#        # Set temperature to original value
-#        self._modify_llm_params({'temperature' : original_temperature})
-#        # Return contextualized query
-#        return is_retrieved_data_relevant_response
-#    
-#    def rag_call(self, lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
-#
-#        # Update llm params
-#        if isinstance(llm_params, Dict) and llm_params:
-#            self._modify_llm_params(llm_params)
-#            
-#            
-#        ## Contextualize query based on chat history
-#        chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
-#        
-#        print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
-#        
-#        
-#        #chat_history_contextualized_human_query = human_query
-#        
-#        # Retrieve documents associated to the query
-#        retrieved_documents = self.retrieval(
-#            chat_history_contextualized_human_query, 
-#            lang_vdb, 
-#            **retrieval_params
-#        )
-#        
-#        # Build a string of retrieved doc's IDs
-#        retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_documents)
-#        # Format retrieved document content to pass in RAG
-#        formatted_retrieved_documents = self._retrieval_results_to_rag_format(retrieved_documents)
-#        
-#        print('RETRIEVED DOCS:', self._retrieval_results_to_rag_format(retrieved_documents), '\n\n')
-#        
-#        print('RETRIEVED DOC IDS:', retrieved_doc_IDs_str)       
-#        
-#        ## Ask llm whether retrieved documents are relevant enough to adress the query
-#        #is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
-#        #    chat_history_contextualized_human_query,
-#        #    formatted_retrieved_documents
-#        #).lower()
-#        #
-#        #print('\n\n\nARE RETRIEVED DOCS RELEVANT :', is_retrieved_data_relevant_response, '\n\n\n')
-#        
-#        #if is_retrieved_data_relevant_response == 'no':
-#        #    ai_response = rag_response_unrelevant_retrieved_docs
-#        #else:
-#        # Activate streaming callback
-#        self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
-#        # Call rag
-#        ai_response_str = self.rag_chain.invoke({
-#            "question": chat_history_contextualized_human_query,
-#            "context": formatted_retrieved_documents
-#        })
-#
-#        # Reset callbacks for normal llm usage 
-#        self._modify_llm_params({'callbacks':None})
-#
-#        # Add human and ai messages in chat history
-#        self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response_str)])
-#        
-#        # Return the ai_response with the associated retrieved_doc_IDs_str
-#        #return ''.join([ai_response_str, f'___Retrieved document IDs___: {retrieved_doc_IDs_str}']) 
-#        return ai_response_str, retrieved_doc_IDs_str
-#        
-
-
-
-
-
 class RAGentic():
+    """
+    A class to implement a Retrieval-Augmented Generation (RAG) system using a local Chat Language Model (LLM), local embedding model and local vector database (VDB).
+
+Initialization:
+    - The class initializes with a local language model (LLM) using ChatOllama.
+    - It sets up various components for chat history, document retrieval, engeenered system prompt templates and chains.
+
+Flexible Parameter Adjustment:
+    - Allows modification of LLM parameters on the fly.
     
+Engeenered system prompts and corresponding chains:
+    - Contextualization of query: A prompt and chain are set up to contextualize the user's query based on previous chat history.
+    - Document ID retrieval: A prompt and chain to specifically identify which documents from the retrieved set the LLM would use to answer the contextualized query.
+    - RAG System Prompt: Core prompt and chain responsible for integrating the retrieved documents with the LLM's response generation process.
+    
+RAG Chain:
+    - The core RAG functionality is implemented in the rag_call method.
+    - It contextualizes the query, retrieves relevant documents, determines which documents are used to answer the query and then uses these documents to generate a response using the LLM.
+
+Chat History Management:
+    - The class maintains a chat history and can trim it to manage token limits.
+
+Query Contextualization:
+    - The _chat_history_contextualize_human_query method uses the chat history to contextualize the user's query, potentially making it more relevant and specific.
+
+Document Retrieval:
+    - The retrieval method is responsible for retrieving relevant documents based on a query.
+    - It supports dense, sparse and hybrid retrieval mode.
+    - It supports different search types (e.g., similarity threshold, MMR) and can apply filters to the search.
+    - The method can use reranking techniques like FlashRank or RAG Fusion to improve retrieval results.
+    - Supports filtering of retrieved documents based on metadata, with adjustable strictness.
+    - Can format retrieval results in different ways (string, RAG format, or raw documents).
+    
+Reranking Techniques:
+    - Implements FlashRank and Reciprocal Ranking Fusion for potentially improving retrieval quality.
+
+Document Usage Tracking:
+    - The class tracks which retrieved documents are actually used in generating the response.
+
+Streaming Support:
+    - Supports streaming of LLM responses through callback mechanisms.
+
+
+
+    Attributes:
+    -----------
+    llm : ChatOllama
+        An instance of the local Chat Language Model used to generate responses.
+    k_docs : int
+        The number of documents to retrieve from the vector database.
+    chat_dict : dict
+        Dictionary to store incremental chat strings for app display.
+    chat_history : InMemoryChatMessageHistory
+        An object to maintain the chat history for the session.
+    rag_retrieved_docs : str
+        Stores the formatted string of documents retrieved in the last RAG call.
+    rag_retrieved_doc_IDs : str
+        Stores the string of document IDs retrieved in the last RAG call.
+    rag_docs_used_to_generate_llm_response : str
+        Stores the document IDs that were actually used to generate the final LLM response of the last RAG call.
+
+    Prompts & Chains:
+    -----------------
+    chat_history_contextualize_q_prompt : ChatPromptTemplate
+        An engeenered system prompt used to contextualize user queries based on chat history.
+    chat_history_contextualize_q_chain : Pipeline
+        A pipeline to contextualize the query by integrating chat history and generating the final LLM response.
+        
+    docs_used_in_response_system_prompt : ChatPromptTemplate
+        An engeenered prompt to identify the document IDs that the LLM will use to answer the query.
+    list_docs_used_in_response_chain : Pipeline
+        A pipeline to list the document IDs from the retrieved documents that will be used in generating the response.
+        
+    rag_prompt : ChatPromptTemplate
+        The engeenered system prompt for the final RAG process, incorporating both the query and the retrieved documents.
+    rag_chain : Pipeline
+        The final RAG pipeline that processes the contextualized query with the retrieved documents to generate a response.
+
+    Methods:
+    --------
+    _get_chat_history_content():
+        Extracts and returns the content from the chat history messages.
+        
+    _modify_llm_params(params: Dict):
+        Dynamically updates the LLM parameters with the provided dictionary.
+        
+    retrieval(query, lang_vdb, search_type='similarity', k_outputs=None, rerank=False, filter_strictness='strict', filters={}, format_results=None):
+        Retrieves documents from the vector database based on the query and provided parameters.
+        
+    _convert_filters_to_qdrant_filter(filters: Dict, filter_strictness: str) -> Union[Filter, None]:
+        Converts the given filters to a format compatible with the Qdrant vector database.
+        
+    reranking(rerank, base_retriever, query):
+        Executes the re-ranking process based on the selected method (FlashRank or RAG Fusion).
+        
+    _flashrank_reranking(base_retriever, query):
+        Performs re-ranking of documents using the FlashRank algorithm.
+        
+    _reciprocal_ranking_fusion(multi_query_results: List[List], k=60):
+        Merges results from multiple queries using reciprocal ranking fusion.
+        
+    _get_multi_query_llm_chain():
+        Constructs the chain responsible for generating multiple queries from the original query.
+        
+    _build_rag_fusion_chain(base_retriever):
+        Builds the RAG fusion chain that includes multiple queries and result merging.
+        
+    _get_k_best_results(retrieved_docs, k_outputs):
+        Returns the top `k_outputs` documents from the retrieved documents list.
+        
+    _retrieval_results_str_format(retrieved_docs):
+        Formats the retrieved documents into a string format suitable for display or further processing.
+        
+    _retrieval_results_to_rag_format(retrieved_docs, print_output=False):
+        Formats the retrieved documents into a string format specifically for RAG processing.
+        
+    _build_str_retrieved_doc_IDs(retrieved_docs, print_output=False):
+        Constructs a string of document IDs from the retrieved documents.
+        
+    _trim_chat_history(chat_history=None):
+        Trims the chat history to fit within a specified token limit, prioritizing the most recent exchanges.
+        
+    _chat_history_contextualize_human_query(human_query: str, temp_llm: int = 0, print_output: bool = True):
+        Contextualizes the human query by integrating relevant chat history and adjusting the LLM's temperature for processing.
+        
+    _which_docs_used_in_rag_response(human_query: str, retrieved_docs_rag: str, temp_llm: int = 0):
+        Determines and returns the document IDs used by the LLM to generate the final response.
+        
+    rag_call(lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
+        Orchestrates the complete RAG process: contextualizes the query, retrieves documents, determines the used documents, and generates the final response.
+
+    Usage:
+    ------
+    Instantiate the `RAGentic` class and utilize the `rag_call` method to perform retrieval-augmented generation.
+    Ensure the proper setup of the language model (LLM) and vector database (VDB) prior to use.
+
+    Example:
+    --------
+    ```python
+    rag = RAGentic()
+    response = rag.rag_call(lang_vdb, "What is the Schrödinger Equation?", llm_params={}, retrieval_params={})
+    print(response)
+    ```
+    """
     def __init__(self):
         # Local Chat LLM
         self.llm = ChatOllama(
@@ -1101,10 +856,11 @@ class RAGentic():
         self.chat_history = InMemoryChatMessageHistory()
         
         # Retriever to use
-        self.retrieved_docs = ''
+        self.rag_retrieved_docs = ''
         # Last retrieved_doc_IDs_str
-        self.last_retrieved_doc_IDs_str = ''
-        
+        self.rag_retrieved_doc_IDs = ''
+        # Last retrieved documents used to formulate rag response
+        self.rag_docs_used_to_generate_llm_response = ''
         
         ############################################################################
         # Chat history query contextualization system prompt
@@ -1122,17 +878,8 @@ class RAGentic():
             | StrOutputParser()
         )
         ############################################################################
-        # retrieved data relevance to answer the query system prompt
-        self.is_retrieved_data_relevant_prompt = ChatPromptTemplate.from_template(is_retrieved_data_relevant_system_prompt)
-        # Retrieved data relevant to answer the query chain
-        self.is_retrieved_data_relevant_chain = (
-            self.is_retrieved_data_relevant_prompt
-            | self.llm
-            | StrOutputParser()
-        )
-        ############################################################################
         # Documents IDs (from retrieved documents) that the llm use to answer the query
-        self.docs_used_in_response_system_prompt = ChatPromptTemplate.from_template(doc_ids_used_in_response_system_prompt)
+        self.docs_used_in_response_system_prompt = ChatPromptTemplate.from_template(doc_ids_used_in_rag_response_system_prompt)
         # Retrieved data relevant to answer the query chain
         self.list_docs_used_in_response_chain = (
             self.docs_used_in_response_system_prompt
@@ -1149,9 +896,6 @@ class RAGentic():
             | StrOutputParser()
         )
         
-
-
-
     def _get_chat_history_content(self):
         return [msg.content for msg in self.chat_history.messages]
     
@@ -1198,13 +942,9 @@ class RAGentic():
         if rerank:
             reranked_docs = self.reranking(rerank, retriever, query)
             retrieved_docs = self._get_k_best_results(reranked_docs, self.k_docs) 
-            
         # Get retriever results
         else:
             retrieved_docs = retriever.get_relevant_documents(query)
-            
-        self.last_retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_docs)
-        self.retrieved_docs = self._retrieval_results_to_rag_format(retrieved_docs)
         
         if format_results == 'str':  
             return self._retrieval_results_str_format(retrieved_docs), 
@@ -1214,54 +954,56 @@ class RAGentic():
             return retrieved_docs
 
     def _convert_filters_to_qdrant_filter(self, filters: Dict, filter_strictness:str) -> Union[Filter, None]:
-        
-        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str) -> 'FieldCondition':
-            if value_or_any == 'match_value':
-                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchValue(value=filter_value))
-            elif value_or_any == 'match_any':
-                return FieldCondition(key=f"metadata.{filter_name}[]", match=MatchAny(any=filter_value))
-        
+        # Return None if there if no filters
         if not filters:
             return None
         
         # For now we only add filter for main_tags and sub_tags (which are lists)
         available_filters = [main_tags_col_name, sub_tags_col_name, entry_id_col_name]
         must_conditions = []
-        
-        
+
+        def _create_field_condition(filter_name: str, filter_value: str, value_or_any:str, field_is_list:bool=True) -> 'FieldCondition':
+            # Field metadata key 
+            metadata_key = f"metadata.{filter_name}[]" if field_is_list else f"metadata.{filter_name}"
+            # Return FieldCondition
+            if value_or_any == 'match_value':
+                return FieldCondition(key=metadata_key, match=MatchValue(value=filter_value))
+            elif value_or_any == 'match_any':
+                return FieldCondition(key=metadata_key, match=MatchAny(any=filter_value))
+            
         for filter_name, filter_value in filters.items():
-            if filter_name in available_filters and filter_value:
+            # Check if filter_name is available and filter_value is a non empty List
+            if filter_name in available_filters and isinstance(filter_value, list) and filter_value:
                 
                 # If filter based on pdf file ID
                 if filter_name == entry_id_col_name:
-                    if isinstance(filter_value, list):
-                        # iterate over each ID and check if all of these are present in metadata
-                        for value in filter_value:
-                            must_conditions.append(FieldCondition(key=f"metadata.{filter_name}", match=MatchValue(value=value)))
+                    # Must match one of the provided IDs
+                    must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any', field_is_list=False))
                             
                 # Else filter based on TAGs
                 else:    
                     # If strictness = any tags
                     if filter_strictness == filter_strictness_choices[0]:
-
-                        if isinstance(filter_value, list):
-                            # Must match at least one of the values in filter
-                            must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
-                        # For other typer of filters such as date
-                        #else:
-                        #    must_conditions.append(_create_field_condition(filter_name, filter_value))
+                        # Must match at least one of the values in filter
+                        must_conditions.append(_create_field_condition(filter_name, filter_value, 'match_any'))
 
                     # Elif all tags must be present
                     elif filter_strictness == filter_strictness_choices[1]:
-                        if isinstance(filter_value, list):
-                            # iterate over each tag and check if all of these are present in metadata
-                            for value in filter_value:
-                                must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
+                        # iterate over each tag and check if all of these are present in metadata
+                        for value in filter_value:
+                            must_conditions.append(_create_field_condition(filter_name, value, 'match_value'))
             
-
         return Filter(must=must_conditions)
-    
 
+
+    def reranking(self, rerank:Literal['flashrank', 'rag_fusion'], base_retriever, query):
+        if rerank == 'flashrank':
+            return self._flashrank_reranking(base_retriever, query)
+            
+        elif rerank == 'rag_fusion':
+            rag_fusion_chain = self._build_rag_fusion_chain(base_retriever)
+            return rag_fusion_chain.invoke({"original_query": query})
+        
     def _flashrank_reranking(self, base_retriever, query):
         # Perform reranking with FlashRank
         compressor = FlashrankRerank(top_n=self.k_docs)
@@ -1313,13 +1055,6 @@ class RAGentic():
     def _build_rag_fusion_chain(self, base_retriever):
         return self._get_multi_query_llm_chain() | base_retriever.map() | self._reciprocal_ranking_fusion
         
-    def reranking(self, rerank:Literal['flashrank', 'rag_fusion'], base_retriever, query):
-        if rerank == 'flashrank':
-            return self._flashrank_reranking(base_retriever, query)
-            
-        elif rerank == 'rag_fusion':
-            rag_fusion_chain = self._build_rag_fusion_chain(base_retriever)
-            return rag_fusion_chain.invoke({"original_query": query})
         
     def _get_k_best_results(self, retrieved_docs, k_outputs):
         return retrieved_docs[:k_outputs] if len(retrieved_docs) > k_outputs else retrieved_docs
@@ -1334,13 +1069,23 @@ class RAGentic():
                     ]
                 )
     
-    def _retrieval_results_to_rag_format(self, retrieved_docs):
-        return f"\n\n{'-'*20}\n\n".join(
-                    [f"**Document ID {doc.metadata[chunked_entry_id_col_name]}**:\n{doc.page_content}" for doc in retrieved_docs]
-                )
+    def _retrieval_results_to_rag_format(self, retrieved_docs, print_output=False):
+        # Format retrieved documents in rag format
+        formatted_results = f"\n\n{'-'*20}\n\n".join(
+                                [f"**Document ID {doc.metadata[chunked_entry_id_col_name]}**:\n{doc.page_content}" for doc in retrieved_docs]
+                            )
+        # Print formatted results if necessary
+        if print_output:
+            print(f'RETRIEVED DOCS:\n{formatted_results}\n\n')
+        return formatted_results
         
-    def _build_str_retrieved_doc_IDs(self, retrieved_docs):
-        return ", ".join([doc.metadata[chunked_entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
+    def _build_str_retrieved_doc_IDs(self, retrieved_docs, print_output=False):
+        # Format retrieved doc IDs
+        retrieved_doc_IDs = ", ".join([doc.metadata[chunked_entry_id_col_name] for doc in retrieved_docs]) if retrieved_docs else 'No retrieved documents.'
+        # Print if necessary
+        if print_output:
+            print(f'RETRIEVED DOC IDS:\n{retrieved_doc_IDs}\n\n')
+        return retrieved_doc_IDs
     
     def _trim_chat_history(self, chat_history=None):
         messages = chat_history if chat_history else self.chat_history.messages
@@ -1356,102 +1101,74 @@ class RAGentic():
                 start_on="human",
             )
         
-    def _chat_history_contextualize_human_query(self, human_query):
+    def _chat_history_contextualize_human_query(self, human_query:str, temp_llm:int=0, print_output:bool=True):
         # Get current llm temperature
         original_temperature = copy.copy(getattr(self.llm, 'temperature'))
-        # Set llm temperature to 0
-        self._modify_llm_params({'temperature' : 0})
+        # Set llm temperature to temp_llm
+        self._modify_llm_params({'temperature' : temp_llm})
         # Trim the chat history before passing it to the chain
         trimmed_history = self._trim_chat_history(self.chat_history.messages)
         # Format the chat_history_contextualize_q_prompt with variables
-        formatted_prompt = self.chat_history_contextualize_q_prompt.format(chat_history=trimmed_history, human_query=human_query)
+        formatted_prompt = self.chat_history_contextualize_q_prompt.format(
+            chat_history=trimmed_history, 
+            human_query=human_query
+            )
         # Call LLM with the formatted prompt to generate new query
-        chat_history_contextualized_human_query = self.llm.invoke(formatted_prompt)        
+        chat_history_contextualized_human_query = self.llm.invoke(formatted_prompt)
+        # Print if necessary
+        if print_output:
+            print(f'\n\nRECONTEXT HUMAN QUERY: {chat_history_contextualized_human_query.content}\n\n')      
         # Set temperature to original value
         self._modify_llm_params({'temperature' : original_temperature})
         # Return contextualized query
         return chat_history_contextualized_human_query.content
 
-        
-    def _is_retrieved_data_relevant(self, human_query, retrieved_docs_rag):
+    def _which_docs_used_in_rag_response(self, human_query:str, retrieved_docs_rag:str, temp_llm:int=0):
         # Get current llm temperature
         original_temperature = copy.copy(getattr(self.llm, 'temperature'))
-        # Set llm temperature to 0
-        self._modify_llm_params({'temperature' : 0})
-        # Directly invoke the LLM with the simplified prompt
-        prompt = self.is_retrieved_data_relevant_prompt.format(
-            human_query=human_query, 
-            retrieved_docs_rag=retrieved_docs_rag
-        )
-
-        is_retrieved_data_relevant_response = self.llm.invoke(prompt).content
+        # Set llm temperature to temp_llm
+        self._modify_llm_params({'temperature' : temp_llm})
+        # Chain call
+        used_docs = self.list_docs_used_in_response_chain.invoke({
+            "question": human_query,
+            "context": retrieved_docs_rag
+        })
         # Set temperature to original value
         self._modify_llm_params({'temperature' : original_temperature})
         # Return contextualized query
-        return is_retrieved_data_relevant_response
+        return used_docs
     
     def rag_call(self, lang_vdb, human_query, llm_params, retrieval_params, streaming_callback_llm_response=None):
-
         # Update llm params
         if isinstance(llm_params, Dict) and llm_params:
             self._modify_llm_params(llm_params)
             
-            
         ## Contextualize query based on chat history
-        chat_history_contextualized_human_query = self._chat_history_contextualize_human_query(human_query)
+        contextualized_human_query = self._chat_history_contextualize_human_query(human_query, print_output=True)
         
-        print('\n\n\nRECONTEXT HUMAN QUERY :', chat_history_contextualized_human_query, '\n\n\n')
-        
-        # Retrieve documents associated to the query
+        # Retrieve documents associated to the contextualized query
         retrieved_documents = self.retrieval(
-            chat_history_contextualized_human_query, 
+            contextualized_human_query, 
             lang_vdb, 
             **retrieval_params
         )
         
+        # Format the retrieved documents in rag format
+        self.rag_retrieved_docs = self._retrieval_results_to_rag_format(retrieved_documents, print_output=True)
         # Build a string of retrieved doc's IDs
-        retrieved_doc_IDs_str = self._build_str_retrieved_doc_IDs(retrieved_documents)
-        # Format retrieved document content to pass in RAG
-        formatted_retrieved_documents = self._retrieval_results_to_rag_format(retrieved_documents)
-        
-        print('RETRIEVED DOCS:', formatted_retrieved_documents, '\n\n')
-        print('RETRIEVED DOC IDS:', retrieved_doc_IDs_str)       
-        
-        ## Ask llm whether retrieved documents are relevant enough to adress the query
-        #is_retrieved_data_relevant_response = self._is_retrieved_data_relevant(
-        #    chat_history_contextualized_human_query,
-        #    formatted_retrieved_documents
-        #).lower()
-        #
-        #print('\n\n\nARE RETRIEVED DOCS RELEVANT :', is_retrieved_data_relevant_response, '\n\n\n')
-        
-        #if is_retrieved_data_relevant_response == 'no':
-        #    ai_response = rag_response_unrelevant_retrieved_docs
-        #else:
-        
-        
-        
+        self.rag_retrieved_doc_IDs = self._build_str_retrieved_doc_IDs(retrieved_documents, print_output=True)
 
-        
-        # Determine which documents (from retriever) are used to formulate the answer
-        # Gonna be added at the end of the llm answer via the LLMResponseStreamingHandler's method on_llm_end
-        self.last_docs_used_in_llm_response_from_retrieved_docs = self.list_docs_used_in_response_chain.invoke({
-            "question": chat_history_contextualized_human_query,
-            "context": formatted_retrieved_documents
-        })
-        
-        
-        
-        
-
+        # Determine which retrieved documents are used to formulate the answer
+        # Will be added at the end of the llm answer via the LLMResponseStreamingHandlerTaipy's method --on_llm_end--
+        self.rag_docs_used_to_generate_llm_response = self._which_docs_used_in_rag_response(contextualized_human_query, self.rag_retrieved_docs)
         
         # Activate streaming callback
         self._modify_llm_params({'callbacks' : CallbackManager([streaming_callback_llm_response] if streaming_callback_llm_response else None)})
 
         # Call rag
         ai_response_str = self.rag_chain.invoke({
-            "question": chat_history_contextualized_human_query,
-            "context": formatted_retrieved_documents
+            "question": contextualized_human_query,
+            "context": self.rag_retrieved_docs
         })
 
         # Reset callbacks for normal llm usage 
@@ -1459,8 +1176,5 @@ class RAGentic():
 
         # Add human and ai messages in chat history
         self.chat_history.add_messages([HumanMessage(content=human_query), AIMessage(content=ai_response_str)])
-        
-        # Return the ai_response with the associated retrieved_doc_IDs_str
-        #return ''.join([ai_response_str, f'___Retrieved document IDs___: {retrieved_doc_IDs_str}']) 
-        return ai_response_str, retrieved_doc_IDs_str
+        return 
         

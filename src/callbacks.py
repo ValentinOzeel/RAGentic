@@ -19,7 +19,8 @@ from tools import SignLog as sl, YamlManagment as ym, SQLiteManagment as sm, ima
 
 
 
-class LLMResponseStreamingHandler(BaseCallbackHandler):
+class LLMResponseStreamingHandlerTaipy(BaseCallbackHandler):
+    '''CUSTOM LLM CALLBACK FOR STREAMING RESPONSE IN TAIPY WITH CITATIONS'''
     def __init__(self, state):
         self.state = state
         self.current_llm_response_tokens = []
@@ -47,13 +48,11 @@ class LLMResponseStreamingHandler(BaseCallbackHandler):
         
     def on_llm_end(self, response: str, **kwargs) -> None:
         ai_response = "".join(self.current_llm_response_tokens)
-        final_response = f"{ai_response} ___Used document IDs___: {self.state.RAGentic.last_docs_used_in_llm_response_from_retrieved_docs} ||| ___All retrieved document IDs___: {self.state.RAGentic.last_retrieved_doc_IDs_str}"
+        final_response = f"{ai_response} ___Used document IDs___: {self.state.RAGentic.rag_docs_used_to_generate_llm_response} ||| ___All retrieved document IDs___: {self.state.RAGentic.rag_retrieved_doc_IDs}"
         self._update_table(final_str=final_response)
 
 
-    
-    
-def style_rag(state, idx: int, row: int) -> str:
+def style_rag_conversation(state, idx: int, row: int) -> str:
     """
     Apply a style to the conversation table depending on the message's author.
     Args:
@@ -74,24 +73,26 @@ def style_rag(state, idx: int, row: int) -> str:
         return 'ai_message'
         
     
+class CallbackHelperFuncs:
+    '''Callbacks helper funcs'''
+    @staticmethod
+    def _get_user_tags(state):
+        print(f"--{tags}--" for tags in state.user_table[main_tags_col_name])
+        # Get all unique user's main and sub-tags values
+        if isinstance(state.user_table, pd.DataFrame):
+            state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list.split(' ') if tag)))
+            state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list.split(' ') if tag))) 
+        return state
+
+    @staticmethod
+    def _delete_loaded_file(file_path):
+        os.remove(file_path)
 
 
 
-    
-    
-    
-    
-
-def _get_user_tags(state):
-    print(f"--{tags}--" for tags in state.user_table[main_tags_col_name])
-    # Get all unique user's main and sub-tags values
-    if isinstance(state.user_table, pd.DataFrame):
-        state.user_main_tags = sorted(list(set(tag for main_tag_list in state.user_table[main_tags_col_name] if main_tag_list is not None for tag in main_tag_list.split(' ') if tag)))
-        state.user_sub_tags = sorted(list(set(tag for sub_tag_list in state.user_table[sub_tags_col_name] if sub_tag_list is not None for tag in sub_tag_list.split(' ') if tag))) 
-    return state
-
-def _delete_loaded_file(file_path):
-    os.remove(file_path)
+### TAIPY APP CALLBACKS ###
+### TAIPY APP CALLBACKS ###
+### TAIPY APP CALLBACKS ###
 
 def on_sign_in(state, id, login_args):    
     # State corresponding values
@@ -154,7 +155,7 @@ def on_login(state, id, login_args):
         # Set user_table variable as user's sqlite data loaded into df 
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
-        state = _get_user_tags(state)
+        state = CallbackHelperFuncs._get_user_tags(state)
         # Access vdb collection
         state.lang_user_vdb = lvdb.access_vdb(state.user_email)
         # Access user's pdfs
@@ -162,10 +163,9 @@ def on_login(state, id, login_args):
         # Initiate RAGentic objet in state
         state.RAGentic = RAGentic()
         notify(state, 'success', 'Successful authentification.')
-        navigate(state, page_ids["root_page"])
-    
+        navigate(state, page_ids["root_page"]) 
 
-    
+
 def on_text_entry_add(state, action, info):   
     if not state.text_entry:
         notify(state,'error', 'You must at least fill the text field (indicated with an *).')
@@ -184,14 +184,16 @@ def on_text_entry_add(state, action, info):
                 'main_tags':main_tags, 
                 'sub_tags':sub_tags, 
                 'text_entry':state.text_entry
-                }
+                },
+        vdb_add=True, 
+        sqlite_add=True
         )
     # Notify success
     notify(state, 'success', 'Text added to database.', duration=notify_duration)
     # Udpate dataframe shown
     state.user_table = sm.sqlite_to_dataframe(state.user_email)
     # Get all unique user's main and sub-tags values
-    state = _get_user_tags(state)
+    state = CallbackHelperFuncs._get_user_tags(state)
     state.text_entry = ''
     
     
@@ -206,6 +208,7 @@ def on_image_to_text(state, id, payload):
             state.selected_image_paths
         )
         notify(state, 'success', 'Converted image as text', duration=notify_duration)
+        
          
 def on_txt_file_load(state, id, payload):
     if not all([state.entry_delimiter, state.text_delimiter, state.file_path_to_load]):
@@ -215,7 +218,7 @@ def on_txt_file_load(state, id, payload):
         notify(state,'warning', 'Some fields were left empty.', duration=notify_duration)
     
     try:
-
+        # Add text in databases
         lvdb.text_to_db(
             state.user_email, 
             state.lang_user_vdb,
@@ -227,26 +230,27 @@ def on_txt_file_load(state, id, payload):
                 'main_tags_delimiter':state.main_tags_delimiter,
                 'sub_tags_delimiter':state.sub_tags_delimiter,
                 'text_delimiter':state.text_delimiter
-                }
+                },
+            vdb_add=True, 
+            sqlite_add=True
         )
 
         # upadte table
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
-        state = _get_user_tags(state)
+        state = CallbackHelperFuncs._get_user_tags(state)
         # Delete loaded file
-        _delete_loaded_file(state.file_path_to_load)
+        CallbackHelperFuncs._delete_loaded_file(state.file_path_to_load)
         
         notify(state,'success', 'Loaded text file in databases', duration=notify_duration)
         
     except Exception as e:
         print(e)
         return notify(state,'error', "The file couldn't be loaded in database", duration=notify_duration)
-    
-
-        
+      
         
 def on_pdf_file_load(state, id, payload):
+    # Format tags
     if state.pdf_tags_separator:
         pdf_main_tags = (
             state.pdf_main_tags.split(state.pdf_tags_separator) 
@@ -259,7 +263,6 @@ def on_pdf_file_load(state, id, payload):
             if state.pdf_tags_separator in state.pdf_sub_tags
             else [state.pdf_sub_tags]
         ) if state.pdf_sub_tags else []
-        
 
     else:
         pdf_main_tags, pdf_sub_tags = state.pdf_main_tags, state.pdf_sub_tags
@@ -276,9 +279,9 @@ def on_pdf_file_load(state, id, payload):
         # Udpate dataframe shown
         state.user_table = sm.sqlite_to_dataframe(state.user_email)
         # Get all unique user's main and sub-tags values
-        state = _get_user_tags(state)
+        state = CallbackHelperFuncs._get_user_tags(state)
         # Delete loaded file
-        _delete_loaded_file(state.pdf_path_to_load)
+        CallbackHelperFuncs._delete_loaded_file(state.pdf_path_to_load)
         state.pdf_path_to_load = ''
         # Update user's pdfs
         state.user_pdf_names_ids = ym.get_user_pdf_names_ids(state.user_email)
@@ -288,10 +291,6 @@ def on_pdf_file_load(state, id, payload):
     except Exception as e:
         print('_on_pdf_load fail: ', e)
         return notify(state,'error', "The file couldn't be loaded in databases", duration=notify_duration)
-
-
-
-
 
 
 def on_filter_date(state, id, payload, use_fresh_df=True):
@@ -348,7 +347,8 @@ def on_reset_filters(state, id, payload):
     state.filter_sub_tags = []
     
     
-def on_retrieval_query(state, id, payload):    
+def on_retrieval_query(state, id, payload):   
+    # Retriever call 
     state.retrieval_results = state.RAGentic.retrieval(
         query= state.retrieval_query,
         lang_vdb= state.lang_user_vdb,
@@ -385,7 +385,6 @@ def on_rag_input(state, id, payload):
     state.RAGentic.chat_dict['RAG']['role'].append(human_role)
     state.rag_conversation_table = pd.DataFrame(state.RAGentic.chat_dict['RAG'])
     
-    
     # Build LLM params dict  
     llm_params = {
         'model': state.llm_name,
@@ -407,23 +406,20 @@ def on_rag_input(state, id, payload):
         'filters': filters,
     }
     
-    
+    # Print out retrieval params
     print('\n\n\n', 'RETRIEVAL PARAMS: ', retrieval_params, '\n\n\n')
     
-    # Instanciate a fresh streaming callback
-    my_stream_callback = LLMResponseStreamingHandler(state)
     # Call the llm with user's query
-    ai_response_str, retrieved_doc_IDs_str = state.RAGentic.rag_call(
+    state.RAGentic.rag_call(
         state.lang_user_vdb,
         rag_current_user_query,
         llm_params,
         retrieval_params,
-        my_stream_callback
+        streaming_callback_llm_response = LLMResponseStreamingHandlerTaipy(state)
     )
 
     # Activate RAG input
     state.rag_input_active = True
             
 
-    
     

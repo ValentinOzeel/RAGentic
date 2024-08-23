@@ -15,7 +15,7 @@ from callbacks import (
             on_reset_filters,
             on_retrieval_query,
             on_rag_input,
-            style_rag
+            style_rag_conversation
         )
 
 from page_ids import page_ids
@@ -97,6 +97,7 @@ with tgb.Page() as chose_task:
         tgb.text(' ')
         tgb.text('## Welcome! Please choose your task.', mode="md")
 
+# Data loading page
 with tgb.Page() as load_data:
     tgb.text("## Add a single entry:", mode="md")
     with tgb.layout("1 1 1 1 1 1"):
@@ -145,7 +146,8 @@ with tgb.Page() as load_data:
                           label="Upload your PDF file*", 
                           extensions=".pdf", drop_message="Drop your PDF file here", 
                           on_action=on_pdf_file_load)
-        
+       
+# Data explorer page 
 with tgb.Page() as retrieve_data:
     tgb.text("## Your data:", mode="md")
     tgb.table("{user_table}", editable=True, page_size=50, allow_all_rows=True)
@@ -211,7 +213,7 @@ with tgb.Page() as retrieve_data:
         
     tgb.text('{retrieval_results}', mode='pre')
     
-  
+# RAG page 
 with tgb.Page() as rag:
     with tgb.layout("1 2", gap="30px"):
         with tgb.part("sidebar"):
@@ -260,7 +262,7 @@ with tgb.Page() as rag:
             tgb.text("## RAG app:", mode="md")
             tgb.table("{rag_conversation_table}", 
                       columns=rag_column_shown_in_table, 
-                      style=style_rag, 
+                      style=style_rag_conversation, 
                       show_all=True, 
                       )  
             tgb.input("{rag_current_user_query}", 
@@ -268,11 +270,3 @@ with tgb.Page() as rag:
                       active=rag_input_active, 
                       on_action=on_rag_input,
                       class_name='fullwidth')
-    
-    
-
-                      
-#
-# LET USER CHOOSE LLM, TEMPERTURE, USE REWRITE USER PROMPT OR NOT
-
-#TABLE ADD FILTER KEYWORDS IN TEXT
