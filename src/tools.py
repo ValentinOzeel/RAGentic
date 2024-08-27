@@ -43,7 +43,6 @@ from langchain_core.prompts.chat import ChatPromptTemplate, MessagesPlaceholder
 ## Chat history
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import trim_messages
-from operator import itemgetter
 from langchain.schema import StrOutputParser
 ## Messages
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
