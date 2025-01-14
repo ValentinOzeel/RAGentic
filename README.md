@@ -7,6 +7,11 @@
 ## App demo
 
 
+https://github.com/user-attachments/assets/8e803e3d-6e54-465e-91cd-bb21834d5605
+
+
+
+
 ## Key Features:
 
 • Interactive AI Assistant running locally: Engage with your data through a chatbot interface running locally on your machine.
