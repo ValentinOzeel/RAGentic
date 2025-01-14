@@ -124,9 +124,10 @@ def on_sign_in(state, id, login_args):
             elif state.user_password != state.verify_password:
                 notify(state, 'error', "Password and password verification entries don't match!", duration=notify_duration)
 
-            ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
-            ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
-            ##### SEND AN EMAIL (send_email_as_verif func) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
+
+            ##### SEND AN EMAIL (send_email_as_verif func from SignLog class in tools.py) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
+            ##### SEND AN EMAIL (send_email_as_verif func from SignLog class in tools.py) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
+            ##### SEND AN EMAIL (send_email_as_verif func from SignLog class in tools.py) WITH RANDOM CODE, ASK USER TO INSERT IT TO VERIFY EMAIL
 
             # If all is good until there
             else:
@@ -171,8 +172,8 @@ def on_text_entry_add(state, action, info):
         notify(state,'error', 'You must at least fill the text field (indicated with an *).')
     
     if state.tags_separator:
-        main_tags = [tag for tag in state.main_tags.split(state.tags_separator) if state.tags_separator in state.main_tags] if state.main_tags else state.main_tags
-        sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator) if state.tags_separator in state.sub_tags] if state.sub_tags else state.sub_tags
+        main_tags = [tag for tag in state.main_tags.split(state.tags_separator)] if state.tags_separator in state.main_tags else state.main_tags
+        sub_tags = [tag for tag in state.sub_tags.split(state.tags_separator)] if state.tags_separator in state.sub_tags else state.sub_tags
     else:
         main_tags, sub_tags = state.main_tags, state.sub_tags
 
@@ -311,24 +312,41 @@ def on_filter_tags(state, id, payload):
     def filter_df(list_filter, column_name):
         # Dynamic tag filling so need to start from fresh df
         fresh_df = sm.sqlite_to_dataframe(state.user_email)
+        
+        print(list_filter)
+        print(column_name)
+        print(fresh_df)
+        
+        splitted_col = fresh_df[column_name].str.split()
+        
         # If non-strict filter
         if state.filter_strictness == filter_strictness_choices[0]:
-            return fresh_df[fresh_df[column_name].apply(
+            print('OKKKKKKKKKKKKK')
+            return fresh_df[splitted_col.apply(
                 lambda tags: any(tag in list_filter for tag in tags) if tags else False
                 )]
         # If strict filter
         elif state.filter_strictness == filter_strictness_choices[1]:
-            return fresh_df[fresh_df[column_name].apply(
+            return fresh_df[splitted_col.apply(
                 lambda tags: all(tag in list_filter for tag in tags) if tags else False
                 )]    
     
     main_tags_filtered_df, sub_tags_filtered_df = None, None
+    
+    print(state.filter_main_tags)
+    print(state.filter_sub_tags)
+    
     # Filter main tags
     if state.filter_main_tags:
         main_tags_filtered_df = filter_df(state.filter_main_tags, main_tags_col_name)
     # Filter sub tags
     if state.filter_sub_tags:
         sub_tags_filtered_df = filter_df(state.filter_sub_tags, sub_tags_col_name)
+        
+    
+    print(main_tags_filtered_df)
+    print(sub_tags_filtered_df)      
+    
     # Build final df
     if main_tags_filtered_df is not None and sub_tags_filtered_df is None:
         state.user_table = main_tags_filtered_df
