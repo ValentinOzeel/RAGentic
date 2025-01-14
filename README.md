@@ -50,6 +50,9 @@ Provide these alternative queries separated by newlines.
 
 Original query: {original_query}"""
 
+________________________________________     
+
+
 **Prompt used for RAG conversation contextualisation**: """
 You are a world-class query rewriter whose sole purpose is to leverage its understanding of a **conversation** to reformulate a **query**, which might reference context in the **conversation**, into a self-contained, standalone question that can be fully understood without context from the **conversation**, while maintaining the exact meaning of the **query**. 
 Refrain yourself from providing any explanation, answer, or additional information beyond the reformulated question.\nIf you don't understand the **query**, simply output it without any modifications.\n
@@ -67,6 +70,9 @@ Here is the **conversation**:\n {chat_history}\n\n
 Here is the the **query**:\n {human_query}\n\n
 Output with no preamble, explanations, or unnecessary verbosity: \n
 """
+
+________________________________________     
+
 
 **Prompt used to cite documents**: '''
 You are a world-class AI assistant provided with a **question** and its associated **context**. Your only task is to identify the document IDs within the **context** that hold the necessary information to answer the **question**.
@@ -87,6 +93,9 @@ To ensure precise execution of your task, adhere strictly these **instructions**
 Remember, your output should only be the complete list of document IDs you would use to generate a thorough and accurate response to the **question**, with no additional text.
 Your generated **complete list of document IDs**, without preamble nor unnecessary verbosity:
 '''
+
+________________________________________     
+
 
 **System prompt used**: '''
 You are a world-class AI assistant integrated into a Retrieval-Augmented Generation (RAG) system, provided with an **question** and the associated RAG system's **context**.
@@ -111,7 +120,7 @@ Remember, you must rely exclusively on the information grounded within the **con
 Your direct response to the **question** based on the RAG system's **context**, without preamble nor unnecessary verbosity:
 '''
 
-
+   
 ## Architecture
 
 _language_: **Python**   
