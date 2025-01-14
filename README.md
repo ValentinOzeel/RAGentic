@@ -9,8 +9,18 @@
 
 https://github.com/user-attachments/assets/8e803e3d-6e54-465e-91cd-bb21834d5605
 
-
-
+Disclosure: Some parts of the video have been slightly edited (cuts and video speed augments) notably when the LLM response is generating. App running locally on PC (GPU: NVIDIA GeForce GTX 1660 Ti).     
+     
+***0-0.11***: Logg-in  
+***0.11-0.23***: App tour     
+***0.23-0.45***: Load manual entry     
+***0.45-1.13***: Load OCR entry    
+***1.13-1.51***: Load multiple entries via text file
+***1.51-2.39***: Load PDF files
+***2.39-3.13***: Interact with and filter your uploaded data
+***3.13-4.10***: Interact with your uploaded data via queries
+***4.10-4.43***: Custom RAG parameters
+***4.43-5.30***: RAG showcase
 
 ## Key Features:
 
