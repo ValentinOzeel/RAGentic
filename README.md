@@ -15,12 +15,12 @@ Disclosure: Some parts of the video have been slightly edited (cuts and video sp
 ***0.11-0.23***: App tour     
 ***0.23-0.45***: Load manual entry     
 ***0.45-1.13***: Load OCR entry    
-***1.13-1.51***: Load multiple entries via text file
-***1.51-2.39***: Load PDF files
-***2.39-3.13***: Interact with and filter your uploaded data
-***3.13-4.10***: Interact with your uploaded data via queries
-***4.10-4.43***: Custom RAG parameters
-***4.43-5.30***: RAG showcase
+***1.13-1.51***: Load multiple entries via text file    
+***1.51-2.39***: Load PDF files    
+***2.39-3.13***: Interact with and filter your uploaded data      
+***3.13-4.10***: Interact with your uploaded data via queries       
+***4.10-4.43***: Custom RAG parameters     
+***4.43-5.30***: RAG showcase     
 
 ## Key Features:
 
